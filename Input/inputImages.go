@@ -10,7 +10,7 @@ import (
 
 // returns the image or nil if the image could not be processed
 func GetImage(imagePath string) *image.Image {
-	dotIdx := strings.Index(imagePath, ".")
+	dotIdx := strings.LastIndex(imagePath, ".")
 	format := imagePath[dotIdx+1:]
 
 	switch strings.ToLower(format) {

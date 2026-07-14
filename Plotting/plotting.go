@@ -10,6 +10,7 @@ import (
 	"gonum.org/v1/plot/vg"
 )
 
+// plots the passed dataset <vecs> onto a 2 dimensional canvas within the interval of coordinates x, y in [0, 1]
 func Plot2D(vecs []*mat.VecDense, title string, filename string) {
 	p := plot.New()
 

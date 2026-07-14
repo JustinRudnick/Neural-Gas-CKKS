@@ -1,45 +1,63 @@
 package neuralgas
 
 import (
+	encrypt "NeuralGasCKKS/Encrypt"
+	parallelize "NeuralGasCKKS/Parallelize"
+	util "NeuralGasCKKS/Util"
 	"fmt"
+	"log/slog"
 	"math"
 	"math/rand"
-	"os"
-	"runtime"
-	"sort"
 	"sync"
+	"time"
 
+	"github.com/tuneinsight/lattigo/v6/circuits/ckks/bootstrapping"
+	"github.com/tuneinsight/lattigo/v6/circuits/ckks/comparison"
+	"github.com/tuneinsight/lattigo/v6/core/rlwe"
+	"github.com/tuneinsight/lattigo/v6/schemes/ckks"
 	"gonum.org/v1/gonum/mat"
 )
 
+type EncParams struct {
+	Ecd          *ckks.Encoder
+	Enc          *rlwe.Encryptor
+	Eval         *ckks.Evaluator
+	Params       *ckks.Parameters
+	Cmp          *comparison.Evaluator
+	Bootstrapper *bootstrapping.SecretKeyBootstrapper
+}
+
 type Params struct {
-	LearningRate_start     float64
-	LearningRate_end       float64
-	InnerTemperature_start float64
-	InnerTemperature_end   float64
+	LearningRate_initial     float64
+	LearningRate_final       float64
+	InnerTemperature_initial float64
+	InnerTemperature_final   float64
 }
 
 type NeuralGas struct {
-	samples                  []*mat.VecDense
-	prototypes               []*mat.VecDense
+	samples                  []*rlwe.Ciphertext
+	prototypes               []*rlwe.Ciphertext
 	optimizingPrototypeCount uint // amount of nearest prototypes to a sample to optimize with step()
 	randomizer               *rand.Rand
 
 	constants Params
-}
-
-type RankedPrototype struct {
-	prototype *mat.VecDense
-	distance  float64 // a buffer for the distance at step function for the given sample
+	EncParams *EncParams
+	logger    *slog.Logger
+	isLogged  bool
 }
 
 // returns a neural gas algorithm with normalized generated prototypes
 // input dataset components must be normalized to interval [0, 1]
-func NewNorm(dataset []*mat.VecDense,
+func NewNorm(
+	dataset []*rlwe.Ciphertext,
+	dimensions uint,
 	prototypeCount uint,
 	randomizer *rand.Rand,
-	params Params) NeuralGas {
-	dimensions := (*dataset[0]).Len()
+	params Params,
+	encParams EncParams,
+	maxCores int,
+	logger *slog.Logger) (ng *NeuralGas, err error) {
+
 	prototypes := make([]*mat.VecDense, prototypeCount)
 
 	for i := range prototypeCount {
@@ -47,82 +65,140 @@ func NewNorm(dataset []*mat.VecDense,
 		for j := range dimensions {
 			prototype[j] = randomizer.Float64()
 		}
-		prototypes[i] = mat.NewVecDense(dimensions, prototype)
+		prototypes[i] = mat.NewVecDense(int(dimensions), prototype)
 	}
 
-	return NeuralGas{
+	encPrototypes, err := encrypt.EncSamplesThreaded(prototypes, encParams.Ecd, encParams.Enc, encParams.Params, maxCores, logger)
+	if err != nil {
+		return nil, err
+	}
+
+	isLogged := logger != nil
+	if isLogged {
+		logger.Info("New normalized [NeuralGas] object has been created.")
+	}
+
+	return &NeuralGas{
 		samples:                  dataset,
-		prototypes:               prototypes,
+		prototypes:               encPrototypes,
 		optimizingPrototypeCount: prototypeCount,
 		randomizer:               randomizer,
-		constants:                params}
+		constants:                params,
+		logger:                   logger,
+		isLogged:                 isLogged}, nil
 }
 
-func NewRankedPrototype(prototype *mat.VecDense, distance float64) *RankedPrototype {
-	return &RankedPrototype{prototype: prototype, distance: distance}
+func NewRankedPrototype(prototype *rlwe.Ciphertext, distance *rlwe.Ciphertext) *util.RankedPrototype {
+	return &util.RankedPrototype{Prototype: prototype, Distance: distance}
 }
 
-func (ng *NeuralGas) TestStep(sample *mat.VecDense, rankedPrototypes []*RankedPrototype, iteration int, maxIterations int, maxCores int) {
-	ng.step(sample, rankedPrototypes, iteration, maxIterations, maxCores)
-	for _, prototype := range rankedPrototypes {
-		fmt.Fprintln(os.Stdout, *prototype.prototype)
-		fmt.Printf("dist: %f\n", prototype.distance)
-	}
-}
+/*
+This function evaluates a learning step on the passed <rankedPrototypes> of neural gas algorithm.
+The learning step function will only be applied for the
+<ng.optimizingPrototypeCount> closest <rankedPrototypes> to the passed <sample> using euclidean distance.
+This function destroys the identity of the <rankdedPrototypes> within the slice.
+*/
+func (ng *NeuralGas) step(
+	sample *rlwe.Ciphertext,
+	rankedPrototypes []*util.RankedPrototype,
+	iteration int,
+	maxIterations int,
+	maxCores int) {
+	eval := ng.EncParams.Eval
+	ecd := ng.EncParams.Ecd
+	enc := ng.EncParams.Enc
+	params := ng.EncParams.Params
+	logger := ng.logger
+	var cmp *comparison.Evaluator
 
-// changes the prototypes
-func (ng *NeuralGas) step(sample *mat.VecDense, rankedPrototypes []*RankedPrototype, iteration int, maxIterations int, maxCores int) {
-
-	MultiThread(
+	parallelize.MultiThread(
 		sample,
 		rankedPrototypes,
 		maxCores,
-		func(sample *mat.VecDense, rankedPrototypes []*RankedPrototype, _ int, wg *sync.WaitGroup) {
+		func(sample *rlwe.Ciphertext, rankedPrototypes []*util.RankedPrototype, startIdx int, wg *sync.WaitGroup) {
+			var err error
 			defer wg.Done()
 			for i := range rankedPrototypes { // calculate distances from prototypes to the sample
-				rankedPrototypes[i].distance = DistanceSq(sample, rankedPrototypes[i].prototype)
+				rankedPrototypes[i].Distance, err = DistanceSq(sample, rankedPrototypes[i].Prototype, ng.EncParams.Enc, ng.EncParams.Eval)
+				if err != nil && ng.isLogged {
+					totalIdx := startIdx + i
+					logger.Error(fmt.Sprintf("Calculating distance failed for prototype idx: %d at iteration %d", totalIdx, iteration))
+				}
 			}
 		})
 
+	// TODO ENCRYPTED SORT
 	// TODO EFFICIENT SORT
-	sort.Slice(rankedPrototypes, func(i, j int) bool {
-		return rankedPrototypes[i].distance < rankedPrototypes[j].distance
-	})
+	/*
+		Sort wont work this way, because this functionallity would allow CPA (chosen plaintext attack) on the encryption scheme.
+
+		It exists a sorting algoritm, that takes two input ciphertexts A[0] and A[1] and returns B[0] (smaller) and B[1] (bigger)
+		with same pt for the input and equivalent output according to Section 4.1 of the paper [https://ieeexplore.ieee.org/document/7937936] (#1 Src 9)
+	*/
+	encrypt.BubbleSort(rankedPrototypes, int(ng.optimizingPrototypeCount), ecd, enc, params, eval, cmp)
 
 	lambda := ng.InnerTemperature(iteration, maxIterations)
 	epsilon := ng.StepWidth(iteration, maxIterations)
 
-	MultiThread(
+	parallelize.MultiThread(
 		sample,
 		rankedPrototypes[:ng.optimizingPrototypeCount],
 		maxCores,
-		func(sample *mat.VecDense, rankedPrototypes []*RankedPrototype, originalOffset int, wg *sync.WaitGroup) {
+		func(sample *rlwe.Ciphertext, rankedPrototypes []*util.RankedPrototype, originalOffset int, wg *sync.WaitGroup) {
+			var err error
+
 			defer wg.Done()
 			for off := range rankedPrototypes {
+				totalIdx := originalOffset + off
 				rank := originalOffset + off
 
 				exp := math.Exp(-float64(rank) / lambda) // e^{-k/lambda}
+				koeff := epsilon * exp
 
-				var offset *mat.VecDense = mat.NewVecDense(sample.Len(), nil)
+				var diff *rlwe.Ciphertext
+				diff, err = eval.SubNew(sample, *rankedPrototypes[off].Prototype) // (v - w_iOld)
+				if err != nil && logger != nil {
+					logger.Error(fmt.Sprintf("Calculating step function failed for prototype idx: %d at iteration %d", totalIdx, iteration))
+				}
 
-				offset.SubVec(sample, rankedPrototypes[off].prototype) // (v - w_iOld)
-				offset.ScaleVec(epsilon*exp, offset)                   // epsilon * e^{-k/lambda} * (v - w_iOld)
+				koeffVec := fillVec(koeff, diff.Slots())
+				encKoeffVec, err := encrypt.EncSample(koeffVec, ecd, enc, params) // epsilon * e^{-k/lambda}
+				if err != nil && logger != nil {
+					logger.Error(fmt.Sprintf("Calculating step function failed for prototype idx: %d at iteration %d", totalIdx, iteration))
+				}
 
-				rankedPrototypes[off].prototype.AddVec(rankedPrototypes[off].prototype, offset) // w_iOld + epsilon * e^{-k/lambda} * (v - w_iOld)
+				if err = eval.MulRelin(diff, *encKoeffVec, diff); err != nil { // epsilon * e^{-k/lambda} * (v - w_iOld)
+					logger.Error(fmt.Sprintf("Multiplication failed for prototype idx: %d at iteration %d", totalIdx, iteration))
+				}
+				if err = eval.Rescale(diff, diff); err != nil {
+					logger.Error(fmt.Sprintf("Rescaling failed for prototype idx: %d at iteration %d", totalIdx, iteration))
+				}
+
+				if err := eval.Add(rankedPrototypes[off].Prototype, diff, rankedPrototypes[off].Prototype); err != nil { // w_iOld + epsilon * e^{-k/lambda} * (v - w_iOld)
+					logger.Error(fmt.Sprintf("Rescaling failed for prototype idx: %d at iteration %d", totalIdx, iteration))
+				}
 			}
 		})
 }
 
+/*
+Trains the prototypes of this [NeuralGas] for the amount of <epochs> using <maxCores> threads.
+*/
 func (ng *NeuralGas) Train(epochs uint, maxCores uint) {
+	initialT := time.Now()
+	if ng.isLogged {
+		ng.logger.Info(fmt.Sprintf("Begin training for %d epoch(s) using %d threads.", epochs, maxCores))
+	}
+
 	iteration := 0
 	totalIterations := int(epochs) * len(ng.samples)
 	for epoch := range epochs {
 		ng.ShuffleSamples()
 
 		prototypeCount := len(ng.prototypes)
-		rankedPrototypes := make([]*RankedPrototype, prototypeCount)
+		rankedPrototypes := make([]*util.RankedPrototype, prototypeCount)
 		for i := range prototypeCount {
-			rankedPrototypes[i] = &RankedPrototype{ng.prototypes[i], 0}
+			rankedPrototypes[i] = &util.RankedPrototype{Prototype: ng.prototypes[i], Distance: nil}
 		}
 
 		for _, sample := range ng.samples {
@@ -130,27 +206,32 @@ func (ng *NeuralGas) Train(epochs uint, maxCores uint) {
 			iteration++
 		}
 
-		if (epoch+1)%(epochs/uint(math.Min(float64(epochs), float64(10)))) == 0 {
-			fmt.Printf("---------------------- EPOCH %d / %d -----------------------\n", epoch+1, epochs)
+		if ng.isLogged && (epoch+1)%(epochs/uint(math.Min(float64(epochs), float64(10)))) == 0 {
+			ng.logger.Info(fmt.Sprintf("---------------------- EPOCH %d / %d -----------------------", epoch+1, epochs))
 		}
 	}
+
+	if ng.isLogged {
+		ng.logger.Info(fmt.Sprintf("Training of %d epoch(s) in %f sec.", epochs, float64(time.Since(initialT))/float64(time.Second)))
+	}
+
 }
 
-//###################### relevant functions ##############################################################
+//###################### Getter functions ##############################################################
 
 func (ng *NeuralGas) StepWidth(iteration int, maxIterations int) float64 {
-	return calculation(ng.constants.LearningRate_start, ng.constants.LearningRate_end, iteration, maxIterations)
+	return calculation(ng.constants.LearningRate_initial, ng.constants.LearningRate_final, iteration, maxIterations)
 }
 
 func (ng *NeuralGas) InnerTemperature(iteration int, maxIterations int) float64 {
-	return calculation(ng.constants.InnerTemperature_start, ng.constants.InnerTemperature_end, iteration, maxIterations)
+	return calculation(ng.constants.InnerTemperature_initial, ng.constants.InnerTemperature_final, iteration, maxIterations)
 }
 
-func (ng NeuralGas) Prototypes() []*mat.VecDense {
+func (ng NeuralGas) Prototypes() []*rlwe.Ciphertext {
 	return ng.prototypes
 }
 
-func (ng NeuralGas) Samples() []*mat.VecDense {
+func (ng NeuralGas) Samples() []*rlwe.Ciphertext {
 	return ng.samples
 }
 
@@ -161,6 +242,7 @@ func calculation(gI float64, gF float64, t int, tMax int) float64 {
 	return gI * math.Pow(gF/gI, float64(t)/float64(tMax))
 }
 
+// fills a vector with
 func fillVec(component float64, dimensions int) *mat.VecDense {
 	array := make([]float64, dimensions)
 	for i := range dimensions {
@@ -173,51 +255,35 @@ func (ng NeuralGas) swap(i int, j int) {
 	ng.samples[i], ng.samples[j] = ng.samples[j], ng.samples[i]
 }
 
-func DistanceSq(v1 mat.Vector, v2 mat.Vector) (dist float64) {
-	r1, _ := v1.Dims()
-	r2, _ := v2.Dims()
-	if r1 != r2 {
-		return -1
-	}
-	var sum float64 = 0
-	for d := range r1 {
-		dif := v1.AtVec(d) - v2.AtVec(d)
-		sum += dif * dif
-	}
-	return sum
-}
-
-// blocks until all goroutines are done
+// TODO Distance has REDUCED LEVEL by 1
 //
-// Calls [runtime.SetDefaultGOMAXPROCS] in the end.
-func MultiThread[K, T any](item K, items []T, maxCores int, function func(item K, subSlice []T, originalStartIndex int, wg *sync.WaitGroup)) {
-	runtime.GOMAXPROCS(int(math.Min(float64(maxCores), float64(runtime.NumCPU()))))
-	var wg sync.WaitGroup
-
-	itemCount := len(items)
-	routineCount := int(math.Min(float64(maxCores), float64(itemCount)))
-	smallSubSliceSize := int(math.Floor(float64(itemCount) / float64(routineCount)))
-	bigSubSliceSize := smallSubSliceSize + 1
-
-	wg.Add(routineCount)
-
-	rest := itemCount % routineCount
-
-	for i := range rest {
-		offset := i * bigSubSliceSize
-		go function(item, items[offset:offset+bigSubSliceSize], offset, &wg)
+// returns the squared euclidian distance of the passed vectors
+func DistanceSq(v1 *rlwe.Ciphertext, v2 *rlwe.Ciphertext, enc *rlwe.Encryptor, eval *ckks.Evaluator) (dist *rlwe.Ciphertext, err error) {
+	if v1.Slots() != v2.Slots() {
+		return nil, fmt.Errorf("Ciphertext slots do not match. ct1: %d, ct2: %d", v1.Slots(), v2.Slots())
 	}
 
-	for i := range routineCount - 1 - rest {
-		offset := i*smallSubSliceSize + rest*bigSubSliceSize
-		go function(item, items[offset:offset+smallSubSliceSize], offset, &wg)
+	//delta
+	sum, err := eval.SubNew(v1, v2)
+	if err != nil {
+		return nil, err
 	}
 
-	offset := (routineCount-1)*smallSubSliceSize + rest
-	function(item, items[offset:], offset, &wg)
+	//squared
+	if err := eval.MulRelin(sum, *sum, sum); err != nil {
+		return nil, err
+	}
 
-	wg.Wait()
-	runtime.SetDefaultGOMAXPROCS()
+	if err := eval.Rescale(sum, sum); err != nil {
+		return nil, err
+	}
+
+	//summed
+	if err := eval.InnerSum(sum, 1, sum.Slots(), sum); err != nil {
+		return nil, err
+	}
+
+	return sum, nil
 }
 
 // Shuffle pseudo-randomizes the order of elements.
