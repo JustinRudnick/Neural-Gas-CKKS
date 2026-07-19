@@ -1,8 +1,12 @@
 package encrypt
 
 import (
+	globals "NeuralGasCKKS/Globals"
 	util "NeuralGasCKKS/Util"
+	"fmt"
+	"log/slog"
 
+	"github.com/tuneinsight/lattigo/v6/circuits/ckks/bootstrapping"
 	"github.com/tuneinsight/lattigo/v6/circuits/ckks/comparison"
 	"github.com/tuneinsight/lattigo/v6/core/rlwe"
 	"github.com/tuneinsight/lattigo/v6/schemes/ckks"
@@ -25,9 +29,53 @@ import (
 
 It swaps the prototypes and distances within the [util.RankedPrototype]s, if necessary. This operation lowers the ciphertexts levels by 1.
 */
-func SortElements(small, large *util.RankedPrototype, identity *rlwe.Ciphertext, eval *ckks.Evaluator, cmp *comparison.Evaluator) (err error) {
+func SortElements(
+	small, large *util.RankedPrototype,
+	identity *rlwe.Ciphertext,
+	eval *ckks.Evaluator,
+	cmp *comparison.Evaluator,
+	btp *bootstrapping.Evaluator,
+) (err error) {
+	if small == nil {
+		return fmt.Errorf("<small> is nil")
+	}
+	if large == nil {
+		return fmt.Errorf("<large> is nil")
+	}
 
-	diff, err := eval.SubNew(small.Distance, large.Distance)
+	sProto, lProto, err := EquateLevel(small.Prototype, large.Prototype, btp, func(minLvl int) bool { return minLvl < 2 })
+	if err != nil {
+		return err
+	}
+
+	sDist, lDist, err := EquateLevel(small.Distance, large.Distance, btp, func(minLvl int) bool { return minLvl < 2 })
+	if err != nil {
+		return err
+	}
+
+	//-------------------------------------- TEST --------------------------------------------------------------------
+	// dec := globals.DECRYPTOR
+	// ecd := globals.ECD
+	// logger := globals.LOGGER
+
+	// if dec != nil {
+	// 	small, err := DecSample(sProto, ecd, dec)
+	// 	large, err := DecSample(lProto, ecd, dec)
+	// 	if err != nil {
+	// 		return err
+	// 	}
+	// 	if logger != nil {
+	// 		logger.Info(fmt.Sprintf("Comparing: [%f, %f] with [%f, %f]",
+	// 			small.RawVector().Data[0],
+	// 			small.RawVector().Data[1],
+	// 			large.RawVector().Data[0],
+	// 			large.RawVector().Data[1],
+	// 		))
+	// 	}
+	// }
+	//------------------------------------ TEST END --------------------------------------------------------------------
+
+	diff, err := eval.SubNew(sDist, lDist)
 	if err != nil {
 		return err
 	}
@@ -42,20 +90,55 @@ func SortElements(small, large *util.RankedPrototype, identity *rlwe.Ciphertext,
 		return err
 	}
 
-	small.Prototype, err = min(small.Prototype, large.Prototype, step, invStep, eval)
+	// //-------------------------------------- TEST --------------------------------------------------------------------
+	// if dec != nil {
+	// 	small, err := DecSample(step, ecd, dec)
+	// 	if err != nil {
+	// 		return err
+	// 	}
+	// 	if logger != nil {
+	// 		logger.Info(fmt.Sprintf("Step: [%v]",
+	// 			small.RawVector().Data,
+	// 		))
+	// 	}
+	// }
+	// //------------------------------------ TEST END --------------------------------------------------------------------
+
+	smallProto, err := min(sProto, lProto, step, invStep, eval)
 	if err != nil {
 		return err
 	}
-	small.Distance, err = min(small.Distance, large.Distance, step, invStep, eval)
+	smallDist, err := min(sDist, lDist, step, invStep, eval)
 	if err != nil {
 		return err
 	}
 
-	large.Prototype, err = max(small.Prototype, large.Prototype, step, invStep, eval)
+	large.Prototype, err = max(sProto, lProto, step, invStep, eval)
 	if err != nil {
 		return err
 	}
-	large.Distance, err = max(small.Distance, large.Distance, step, invStep, eval)
+	large.Distance, err = max(sDist, lDist, step, invStep, eval)
+
+	small.Prototype = smallProto
+	small.Distance = smallDist
+
+	//-------------------------------------- TEST --------------------------------------------------------------------
+	// if dec != nil {
+	// 	small, err := DecSample(small.Prototype, ecd, dec)
+	// 	large, err := DecSample(large.Prototype, ecd, dec)
+	// 	if err != nil {
+	// 		return err
+	// 	}
+	// 	if logger != nil {
+	// 		logger.Info(fmt.Sprintf("After swapping: [%f, %f] with [%f, %f]",
+	// 			small.RawVector().Data[0],
+	// 			small.RawVector().Data[1],
+	// 			large.RawVector().Data[0],
+	// 			large.RawVector().Data[1],
+	// 		))
+	// 	}
+	// }
+	//------------------------------------ TEST END --------------------------------------------------------------------
 
 	return err
 }
@@ -70,8 +153,9 @@ func SortElements(small, large *util.RankedPrototype, identity *rlwe.Ciphertext,
 --- Description ---
 
 The [util.RankedPrototype]s themselves are not swapped, but their contents.
+
+	Decreases the level of the (most) cyphertexts by 2 per loop. Looping <ng.optimizingPrototypeCount> times.
 */
-// TODO
 func BubbleSort(
 	array []*util.RankedPrototype,
 	sortingElements int,
@@ -79,22 +163,85 @@ func BubbleSort(
 	enc *rlwe.Encryptor,
 	params *ckks.Parameters,
 	eval *ckks.Evaluator,
-	cmp *comparison.Evaluator) (err error) {
+	cmp *comparison.Evaluator,
+	bootstrapper *bootstrapping.Evaluator,
+	logger *slog.Logger,
+) (err error) {
+	if logger != nil {
+		logger.Info("Starting bubble sort.")
+	}
 
 	identity, err := IdentityCipher(array[0].Prototype.Slots(), ecd, enc, params)
 	if err != nil {
+		if logger != nil {
+			logger.Info("Identity Ciphertext could not be initialized.")
+		}
 		return err
 	}
 
-	for i := 0; i < sortingElements; i++ {
-		for j := len(array) - 2; j >= i; j-- {
-			err = SortElements(array[j], array[j+1], identity, eval, cmp)
+	//-------------------------------------- TEST --------------------------------------------------------------------
+	dec := globals.DECRYPTOR
+	for _, proto := range array {
+
+		if dec != nil {
+			adaption, err := DecSample(proto.Prototype, ecd, dec)
 			if err != nil {
-				break
+				return err
+			}
+			if logger != nil {
+				logger.Info(fmt.Sprintf("Pre-bubbling Prototype: [%f, %f]", adaption.RawVector().Data[0], adaption.RawVector().Data[1]))
 			}
 		}
 	}
+	//------------------------------------ TEST END --------------------------------------------------------------------
 
+	for i := 0; i < sortingElements; i++ {
+		for j := len(array) - 2; j >= i; j-- {
+			if logger != nil {
+				logger.Info(fmt.Sprintf("Comparing indexes: %d and %d", j, j+1))
+			}
+			err = SortElements(array[j], array[j+1], identity, eval, cmp, bootstrapper)
+			if err != nil {
+				if logger != nil {
+					logger.Error(fmt.Sprintf("Sorting elements raised an error: %s", err.Error()))
+				}
+				break
+			}
+			// //-------------------------------------- TEST --------------------------------------------------------------------
+			// for _, proto := range array {
+
+			// 	if dec != nil {
+			// 		adaption, err := DecSample(proto.Prototype, ecd, dec)
+			// 		if err != nil {
+			// 			return err
+			// 		}
+			// 		if logger != nil {
+			// 			logger.Info(fmt.Sprintf("In-bubbling Prototype: [%f, %f]", adaption.RawVector().Data[0], adaption.RawVector().Data[1]))
+			// 		}
+			// 	}
+			// }
+			// //------------------------------------ TEST END --------------------------------------------------------------------
+		}
+	}
+
+	//-------------------------------------- TEST --------------------------------------------------------------------
+	for _, proto := range array {
+
+		if dec != nil {
+			adaption, err := DecSample(proto.Prototype, ecd, dec)
+			if err != nil {
+				return err
+			}
+			if logger != nil {
+				logger.Info(fmt.Sprintf("Post-bubbling Prototype: [%f, %f]", adaption.RawVector().Data[0], adaption.RawVector().Data[1]))
+			}
+		}
+	}
+	//------------------------------------ TEST END --------------------------------------------------------------------
+
+	if logger != nil {
+		logger.Info("Ending bubble sort.")
+	}
 	return err
 }
 
@@ -119,6 +266,16 @@ func IdentityCipher(slots int, ecd *ckks.Encoder, enc *rlwe.Encryptor, params *c
 	return identity, nil
 }
 
+// WORKS tested
+func MaxTest(x0, x1, step, invStep *rlwe.Ciphertext, eval *ckks.Evaluator) (smoothMax *rlwe.Ciphertext, err error) {
+	return max(x0, x1, step, invStep, eval)
+}
+
+// WORKS tested
+func MinTest(x0, x1, step, invStep *rlwe.Ciphertext, eval *ckks.Evaluator) (smoothMax *rlwe.Ciphertext, err error) {
+	return min(x0, x1, step, invStep, eval)
+}
+
 /*
 --- Variables ---
 
@@ -133,6 +290,8 @@ func IdentityCipher(slots int, ecd *ckks.Encoder, enc *rlwe.Encryptor, params *c
 --- Returns ---
 
 The smooth maximum of the [rlwe.Ciphertext]s x0, x1
+
+	Level of the smoothMin is 1 less than the input ciphertexts
 */
 func max(x0, x1, step, invStep *rlwe.Ciphertext, eval *ckks.Evaluator) (smoothMax *rlwe.Ciphertext, err error) {
 	prod0, err := eval.MulRelinNew(x0, step)
@@ -175,6 +334,8 @@ func max(x0, x1, step, invStep *rlwe.Ciphertext, eval *ckks.Evaluator) (smoothMa
 --- Returns ---
 
 The smooth minimum of the [rlwe.Ciphertext]s x0, x1
+
+	Level of the smoothMin is 1 less than the input ciphertexts
 */
 func min(x0, x1, step, invStep *rlwe.Ciphertext, eval *ckks.Evaluator) (smoothMin *rlwe.Ciphertext, err error) {
 	prod0, err := eval.MulRelinNew(x0, invStep)

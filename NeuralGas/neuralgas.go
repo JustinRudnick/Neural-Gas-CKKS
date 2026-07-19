@@ -24,7 +24,9 @@ type EncParams struct {
 	Eval         *ckks.Evaluator
 	Params       *ckks.Parameters
 	Cmp          *comparison.Evaluator
-	Bootstrapper *bootstrapping.SecretKeyBootstrapper
+	Bootstrapper *bootstrapping.Evaluator
+
+	Dec *rlwe.Decryptor //TODO delete
 }
 
 type Params struct {
@@ -56,7 +58,8 @@ func NewNorm(
 	params Params,
 	encParams EncParams,
 	maxCores int,
-	logger *slog.Logger) (ng *NeuralGas, err error) {
+	logger *slog.Logger,
+) (ng *NeuralGas, err error) {
 
 	prototypes := make([]*mat.VecDense, prototypeCount)
 
@@ -84,12 +87,22 @@ func NewNorm(
 		optimizingPrototypeCount: prototypeCount,
 		randomizer:               randomizer,
 		constants:                params,
+		EncParams:                &encParams,
 		logger:                   logger,
 		isLogged:                 isLogged}, nil
 }
 
 func NewRankedPrototype(prototype *rlwe.Ciphertext, distance *rlwe.Ciphertext) *util.RankedPrototype {
 	return &util.RankedPrototype{Prototype: prototype, Distance: distance}
+}
+
+func (ng *NeuralGas) TestStep(
+	sample *rlwe.Ciphertext,
+	rankedPrototypes []*util.RankedPrototype,
+	iteration int,
+	maxIterations int,
+	maxCores int) (err error) {
+	return ng.step(sample, rankedPrototypes, iteration, maxIterations, maxCores)
 }
 
 /*
@@ -103,13 +116,16 @@ func (ng *NeuralGas) step(
 	rankedPrototypes []*util.RankedPrototype,
 	iteration int,
 	maxIterations int,
-	maxCores int) {
+	maxCores int) (err error) {
 	eval := ng.EncParams.Eval
 	ecd := ng.EncParams.Ecd
 	enc := ng.EncParams.Enc
 	params := ng.EncParams.Params
 	logger := ng.logger
-	var cmp *comparison.Evaluator
+	bootstrapper := ng.EncParams.Bootstrapper
+	cmp := ng.EncParams.Cmp
+
+	var errors chan error = make(chan error, 1)
 
 	parallelize.MultiThread(
 		sample,
@@ -119,23 +135,49 @@ func (ng *NeuralGas) step(
 			var err error
 			defer wg.Done()
 			for i := range rankedPrototypes { // calculate distances from prototypes to the sample
-				rankedPrototypes[i].Distance, err = DistanceSq(sample, rankedPrototypes[i].Prototype, ng.EncParams.Enc, ng.EncParams.Eval)
-				if err != nil && ng.isLogged {
-					totalIdx := startIdx + i
-					logger.Error(fmt.Sprintf("Calculating distance failed for prototype idx: %d at iteration %d", totalIdx, iteration))
+				rankedPrototypes[i].Distance, err = DistanceSq(sample, rankedPrototypes[i].Prototype, ng.EncParams)
+				if err != nil {
+					select {
+					case errors <- err: // non blocking
+					default:
+					}
+					if ng.isLogged {
+						totalIdx := startIdx + i
+						logger.Error(fmt.Sprintf("Calculating distance failed for prototype idx: %d at iteration %d", totalIdx, iteration))
+					}
 				}
 			}
 		})
 
-	// TODO ENCRYPTED SORT
-	// TODO EFFICIENT SORT
-	/*
-		Sort wont work this way, because this functionallity would allow CPA (chosen plaintext attack) on the encryption scheme.
+	select {
+	case err = <-errors: // non blocking
+		return fmt.Errorf("Calculating distances (threaded) in step function failed:\n\t%w", err)
+	default:
+	}
 
+	/*
 		It exists a sorting algoritm, that takes two input ciphertexts A[0] and A[1] and returns B[0] (smaller) and B[1] (bigger)
 		with same pt for the input and equivalent output according to Section 4.1 of the paper [https://ieeexplore.ieee.org/document/7937936] (#1 Src 9)
 	*/
-	encrypt.BubbleSort(rankedPrototypes, int(ng.optimizingPrototypeCount), ecd, enc, params, eval, cmp)
+	err = encrypt.BubbleSort(rankedPrototypes, int(ng.optimizingPrototypeCount), ecd, enc, params, eval, cmp, bootstrapper, nil)
+	if err != nil {
+		return err
+	}
+
+	//-------------------------------------- TEST --------------------------------------------------------------------
+	if ng.EncParams.Dec != nil {
+		adaption, err := encrypt.DecSample(sample, ecd, ng.EncParams.Dec)
+		if err != nil {
+			select {
+			case errors <- err: // non blocking
+			default:
+			}
+		}
+		if logger != nil {
+			logger.Info(fmt.Sprintf("Sample: [%f, %f]", adaption.RawVector().Data[0], adaption.RawVector().Data[1]))
+		}
+	}
+	//------------------------------------ TEST END --------------------------------------------------------------------
 
 	lambda := ng.InnerTemperature(iteration, maxIterations)
 	epsilon := ng.StepWidth(iteration, maxIterations)
@@ -146,8 +188,8 @@ func (ng *NeuralGas) step(
 		maxCores,
 		func(sample *rlwe.Ciphertext, rankedPrototypes []*util.RankedPrototype, originalOffset int, wg *sync.WaitGroup) {
 			var err error
-
 			defer wg.Done()
+
 			for off := range rankedPrototypes {
 				totalIdx := originalOffset + off
 				rank := originalOffset + off
@@ -155,36 +197,118 @@ func (ng *NeuralGas) step(
 				exp := math.Exp(-float64(rank) / lambda) // e^{-k/lambda}
 				koeff := epsilon * exp
 
+				// //-------------------------------------- TEST --------------------------------------------------------------------
+				// if ng.EncParams.Dec != nil {
+				// 	adaption, err := encrypt.DecSample(rankedPrototypes[off].Prototype, ecd, ng.EncParams.Dec)
+				// 	if err != nil {
+				// 		select {
+				// 		case errors <- err: // non blocking
+				// 		default:
+				// 		}
+				// 	}
+				// 	if logger != nil {
+				// 		logger.Info(fmt.Sprintf("Prototype: [%f, %f]", adaption.RawVector().Data[0], adaption.RawVector().Data[1]))
+				// 	}
+				// }
+				// //------------------------------------ TEST END --------------------------------------------------------------------
+
 				var diff *rlwe.Ciphertext
-				diff, err = eval.SubNew(sample, *rankedPrototypes[off].Prototype) // (v - w_iOld)
-				if err != nil && logger != nil {
-					logger.Error(fmt.Sprintf("Calculating step function failed for prototype idx: %d at iteration %d", totalIdx, iteration))
+				diff, err = eval.SubNew(sample, rankedPrototypes[off].Prototype) // (v - w_iOld)
+				if err != nil {
+					if logger != nil {
+						logger.Error(fmt.Sprintf("Calculating difference vector failed for prototype idx: %d at iteration %d", totalIdx, iteration))
+					}
+					select {
+					case errors <- err: // non blocking
+						return
+					default:
+					}
 				}
 
-				koeffVec := fillVec(koeff, diff.Slots())
-				encKoeffVec, err := encrypt.EncSample(koeffVec, ecd, enc, params) // epsilon * e^{-k/lambda}
-				if err != nil && logger != nil {
-					logger.Error(fmt.Sprintf("Calculating step function failed for prototype idx: %d at iteration %d", totalIdx, iteration))
+				// //-------------------------------------- TEST --------------------------------------------------------------------
+				// if ng.EncParams.Dec != nil {
+				// 	adaption, err := encrypt.DecSample(diff, ecd, ng.EncParams.Dec)
+				// 	if err != nil {
+				// 		select {
+				// 		case errors <- err: // non blocking
+				// 			return
+				// 		default:
+				// 		}
+				// 	}
+				// 	if logger != nil {
+				// 		logger.Info(fmt.Sprintf("Diff: [%f, %f]", adaption.RawVector().Data[0], adaption.RawVector().Data[1]))
+				// 	}
+				// }
+				// //------------------------------------ TEST END --------------------------------------------------------------------
+
+				diff, err = encrypt.MulCoeff(koeff, diff, ecd, enc, eval, params, bootstrapper)
+				if err != nil {
+					if logger != nil {
+						logger.Error(fmt.Sprintf("Multiplying coefficient to difference vector failed for prototype idx: %d at iteration %d", totalIdx, iteration))
+					}
+					select {
+					case errors <- err: // non blocking
+						return
+					default:
+					}
 				}
 
-				if err = eval.MulRelin(diff, *encKoeffVec, diff); err != nil { // epsilon * e^{-k/lambda} * (v - w_iOld)
-					logger.Error(fmt.Sprintf("Multiplication failed for prototype idx: %d at iteration %d", totalIdx, iteration))
-				}
-				if err = eval.Rescale(diff, diff); err != nil {
-					logger.Error(fmt.Sprintf("Rescaling failed for prototype idx: %d at iteration %d", totalIdx, iteration))
-				}
+				// //-------------------------------------- TEST --------------------------------------------------------------------
+				// if ng.EncParams.Dec != nil {
+				// 	adaption, err := encrypt.DecSample(diff, ecd, ng.EncParams.Dec)
+				// 	if err != nil {
+				// 		select {
+				// 		case errors <- err: // non blocking
+				// 			return
+				// 		default:
+				// 		}
+				// 	}
+				// 	if logger != nil {
+				// 		logger.Info(fmt.Sprintf("Adaption: [%f, %f]", adaption.RawVector().Data[0], adaption.RawVector().Data[1]))
+				// 	}
+				// }
+				// //------------------------------------ TEST END --------------------------------------------------------------------
 
 				if err := eval.Add(rankedPrototypes[off].Prototype, diff, rankedPrototypes[off].Prototype); err != nil { // w_iOld + epsilon * e^{-k/lambda} * (v - w_iOld)
-					logger.Error(fmt.Sprintf("Rescaling failed for prototype idx: %d at iteration %d", totalIdx, iteration))
+					if logger != nil {
+						logger.Error(fmt.Sprintf("Evaluation adaption step failed for prototype idx: %d at iteration %d", totalIdx, iteration))
+					}
+					select {
+					case errors <- err: // non blocking
+						return
+					default:
+					}
 				}
+
+				// //-------------------------------------- TEST --------------------------------------------------------------------
+				// if ng.EncParams.Dec != nil {
+				// 	adaption, err := encrypt.DecSample(rankedPrototypes[off].Prototype, ecd, ng.EncParams.Dec)
+				// 	if err != nil {
+				// 		select {
+				// 		case errors <- err: // non blocking
+				// 		default:
+				// 		}
+				// 	}
+				// 	if logger != nil {
+				// 		logger.Info(fmt.Sprintf("New: [%f, %f]", adaption.RawVector().Data[0], adaption.RawVector().Data[1]))
+				// 	}
+				// }
+				// //------------------------------------ TEST END --------------------------------------------------------------------
 			}
 		})
+
+	select {
+	case err = <-errors: // non blocking
+		return err
+	default:
+		return nil
+	}
 }
 
 /*
 Trains the prototypes of this [NeuralGas] for the amount of <epochs> using <maxCores> threads.
 */
-func (ng *NeuralGas) Train(epochs uint, maxCores uint) {
+func (ng *NeuralGas) Train(epochs uint, maxCores uint) (err error) {
 	initialT := time.Now()
 	if ng.isLogged {
 		ng.logger.Info(fmt.Sprintf("Begin training for %d epoch(s) using %d threads.", epochs, maxCores))
@@ -202,7 +326,15 @@ func (ng *NeuralGas) Train(epochs uint, maxCores uint) {
 		}
 
 		for _, sample := range ng.samples {
-			ng.step(sample, rankedPrototypes, iteration, totalIterations, int(maxCores))
+			err = ng.step(sample, rankedPrototypes, iteration, totalIterations, int(maxCores))
+			if err != nil {
+				return err
+			}
+
+			for i := range rankedPrototypes {
+				ng.prototypes[i] = rankedPrototypes[i].Prototype
+			}
+
 			iteration++
 		}
 
@@ -214,6 +346,8 @@ func (ng *NeuralGas) Train(epochs uint, maxCores uint) {
 	if ng.isLogged {
 		ng.logger.Info(fmt.Sprintf("Training of %d epoch(s) in %f sec.", epochs, float64(time.Since(initialT))/float64(time.Second)))
 	}
+
+	return nil
 
 }
 
@@ -233,6 +367,14 @@ func (ng NeuralGas) Prototypes() []*rlwe.Ciphertext {
 
 func (ng NeuralGas) Samples() []*rlwe.Ciphertext {
 	return ng.samples
+}
+
+func (ng NeuralGas) OptimizingPrototypeCount() int {
+	return int(ng.optimizingPrototypeCount)
+}
+
+func (ng NeuralGas) SetOptimizingPrototypeCount(new uint) {
+	ng.optimizingPrototypeCount = new
 }
 
 //###################### Helper functions ####################################################
@@ -255,22 +397,29 @@ func (ng NeuralGas) swap(i int, j int) {
 	ng.samples[i], ng.samples[j] = ng.samples[j], ng.samples[i]
 }
 
-// TODO Distance has REDUCED LEVEL by 1
-//
 // returns the squared euclidian distance of the passed vectors
-func DistanceSq(v1 *rlwe.Ciphertext, v2 *rlwe.Ciphertext, enc *rlwe.Encryptor, eval *ckks.Evaluator) (dist *rlwe.Ciphertext, err error) {
-	if v1.Slots() != v2.Slots() {
-		return nil, fmt.Errorf("Ciphertext slots do not match. ct1: %d, ct2: %d", v1.Slots(), v2.Slots())
+//
+//	The level of ciphertext distance is 1 level lower, than the levels of the ciphertexts v1 and v2.
+func DistanceSq(v1 *rlwe.Ciphertext, v2 *rlwe.Ciphertext, encParams *EncParams) (dist *rlwe.Ciphertext, err error) {
+	ecd := encParams.Ecd
+	enc := encParams.Enc
+	eval := encParams.Eval
+	params := encParams.Params
+	btp := encParams.Bootstrapper
+
+	c0, c1, err := encrypt.EquateLevel(v1, v2, btp, func(minLevel int) bool { return minLevel < 2 })
+	if err != nil {
+		return nil, fmt.Errorf("DistanceSq(): EquateLevel failed with: %w", err)
 	}
 
 	//delta
-	sum, err := eval.SubNew(v1, v2)
+	sum, err := eval.SubNew(c0, c1)
 	if err != nil {
 		return nil, err
 	}
 
 	//squared
-	if err := eval.MulRelin(sum, *sum, sum); err != nil {
+	if err := eval.MulRelin(sum, sum, sum); err != nil {
 		return nil, err
 	}
 
@@ -280,6 +429,11 @@ func DistanceSq(v1 *rlwe.Ciphertext, v2 *rlwe.Ciphertext, enc *rlwe.Encryptor, e
 
 	//summed
 	if err := eval.InnerSum(sum, 1, sum.Slots(), sum); err != nil {
+		return nil, err
+	}
+
+	sum, err = encrypt.MulCoeff(float64(1)/float64(sum.Slots()), sum, ecd, enc, eval, params, btp)
+	if err != nil {
 		return nil, err
 	}
 

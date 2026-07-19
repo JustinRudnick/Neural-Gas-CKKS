@@ -93,7 +93,14 @@ Calls [runtime.SetDefaultGOMAXPROCS] in the end.
 
 A slice of all *[rlwe.Ciphertext]s representing the encrypted samples or [nil] on failure.
 */
-func EncSamplesThreaded(samples []*mat.VecDense, ecd *ckks.Encoder, enc *rlwe.Encryptor, params *ckks.Parameters, maxCores int, logger *slog.Logger) (cts []*rlwe.Ciphertext, err error) {
+func EncSamplesThreaded(
+	samples []*mat.VecDense,
+	ecd *ckks.Encoder,
+	enc *rlwe.Encryptor,
+	params *ckks.Parameters,
+	maxCores int,
+	logger *slog.Logger,
+) (cts []*rlwe.Ciphertext, err error) {
 	cts = make([]*rlwe.Ciphertext, len(samples))
 
 	parallelize.MultiThread(
