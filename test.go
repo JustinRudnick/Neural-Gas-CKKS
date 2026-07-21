@@ -2,7 +2,6 @@ package main
 
 import (
 	encrypt "NeuralGasCKKS/Encrypt"
-	globals "NeuralGasCKKS/Globals"
 	neuralgas "NeuralGasCKKS/NeuralGas"
 	util "NeuralGasCKKS/Util"
 	"fmt"
@@ -197,8 +196,6 @@ func main() {
 		Bootstrapper: bootstrapper,
 		Dec:          dec,
 	}
-
-	globals.DECRYPTOR = dec
 
 	ng, err := neuralgas.NewNorm(
 		encSamples,

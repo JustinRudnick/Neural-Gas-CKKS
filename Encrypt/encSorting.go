@@ -1,7 +1,6 @@
 package encrypt
 
 import (
-	globals "NeuralGasCKKS/Globals"
 	util "NeuralGasCKKS/Util"
 	"fmt"
 	"log/slog"
@@ -53,28 +52,6 @@ func SortElements(
 		return err
 	}
 
-	//-------------------------------------- TEST --------------------------------------------------------------------
-	// dec := globals.DECRYPTOR
-	// ecd := globals.ECD
-	// logger := globals.LOGGER
-
-	// if dec != nil {
-	// 	small, err := DecSample(sProto, ecd, dec)
-	// 	large, err := DecSample(lProto, ecd, dec)
-	// 	if err != nil {
-	// 		return err
-	// 	}
-	// 	if logger != nil {
-	// 		logger.Info(fmt.Sprintf("Comparing: [%f, %f] with [%f, %f]",
-	// 			small.RawVector().Data[0],
-	// 			small.RawVector().Data[1],
-	// 			large.RawVector().Data[0],
-	// 			large.RawVector().Data[1],
-	// 		))
-	// 	}
-	// }
-	//------------------------------------ TEST END --------------------------------------------------------------------
-
 	diff, err := eval.SubNew(sDist, lDist)
 	if err != nil {
 		return err
@@ -89,20 +66,6 @@ func SortElements(
 	if err != nil {
 		return err
 	}
-
-	// //-------------------------------------- TEST --------------------------------------------------------------------
-	// if dec != nil {
-	// 	small, err := DecSample(step, ecd, dec)
-	// 	if err != nil {
-	// 		return err
-	// 	}
-	// 	if logger != nil {
-	// 		logger.Info(fmt.Sprintf("Step: [%v]",
-	// 			small.RawVector().Data,
-	// 		))
-	// 	}
-	// }
-	// //------------------------------------ TEST END --------------------------------------------------------------------
 
 	smallProto, err := min(sProto, lProto, step, invStep, eval)
 	if err != nil {
@@ -121,24 +84,6 @@ func SortElements(
 
 	small.Prototype = smallProto
 	small.Distance = smallDist
-
-	//-------------------------------------- TEST --------------------------------------------------------------------
-	// if dec != nil {
-	// 	small, err := DecSample(small.Prototype, ecd, dec)
-	// 	large, err := DecSample(large.Prototype, ecd, dec)
-	// 	if err != nil {
-	// 		return err
-	// 	}
-	// 	if logger != nil {
-	// 		logger.Info(fmt.Sprintf("After swapping: [%f, %f] with [%f, %f]",
-	// 			small.RawVector().Data[0],
-	// 			small.RawVector().Data[1],
-	// 			large.RawVector().Data[0],
-	// 			large.RawVector().Data[1],
-	// 		))
-	// 	}
-	// }
-	//------------------------------------ TEST END --------------------------------------------------------------------
 
 	return err
 }
@@ -179,22 +124,6 @@ func BubbleSort(
 		return err
 	}
 
-	//-------------------------------------- TEST --------------------------------------------------------------------
-	dec := globals.DECRYPTOR
-	for _, proto := range array {
-
-		if dec != nil {
-			adaption, err := DecSample(proto.Prototype, ecd, dec)
-			if err != nil {
-				return err
-			}
-			if logger != nil {
-				logger.Info(fmt.Sprintf("Pre-bubbling Prototype: [%f, %f]", adaption.RawVector().Data[0], adaption.RawVector().Data[1]))
-			}
-		}
-	}
-	//------------------------------------ TEST END --------------------------------------------------------------------
-
 	for i := 0; i < sortingElements; i++ {
 		for j := len(array) - 2; j >= i; j-- {
 			if logger != nil {
@@ -207,37 +136,8 @@ func BubbleSort(
 				}
 				break
 			}
-			// //-------------------------------------- TEST --------------------------------------------------------------------
-			// for _, proto := range array {
-
-			// 	if dec != nil {
-			// 		adaption, err := DecSample(proto.Prototype, ecd, dec)
-			// 		if err != nil {
-			// 			return err
-			// 		}
-			// 		if logger != nil {
-			// 			logger.Info(fmt.Sprintf("In-bubbling Prototype: [%f, %f]", adaption.RawVector().Data[0], adaption.RawVector().Data[1]))
-			// 		}
-			// 	}
-			// }
-			// //------------------------------------ TEST END --------------------------------------------------------------------
 		}
 	}
-
-	//-------------------------------------- TEST --------------------------------------------------------------------
-	for _, proto := range array {
-
-		if dec != nil {
-			adaption, err := DecSample(proto.Prototype, ecd, dec)
-			if err != nil {
-				return err
-			}
-			if logger != nil {
-				logger.Info(fmt.Sprintf("Post-bubbling Prototype: [%f, %f]", adaption.RawVector().Data[0], adaption.RawVector().Data[1]))
-			}
-		}
-	}
-	//------------------------------------ TEST END --------------------------------------------------------------------
 
 	if logger != nil {
 		logger.Info("Ending bubble sort.")

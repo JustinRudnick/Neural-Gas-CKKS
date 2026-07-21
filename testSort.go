@@ -2,7 +2,6 @@ package main
 
 import (
 	encrypt "NeuralGasCKKS/Encrypt"
-	globals "NeuralGasCKKS/Globals"
 	neuralgas "NeuralGasCKKS/NeuralGas"
 	util "NeuralGasCKKS/Util"
 	"fmt"
@@ -92,10 +91,6 @@ func main() {
 		panic(err)
 	}
 	cmp := comparison.NewEvaluator(params, minimax.NewEvaluator(params, eval, bootstrapper))
-
-	globals.LOGGER = logger
-	globals.ECD = ecd
-	globals.DECRYPTOR = dec
 
 	//------------------
 	// Samples init
