@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
-	"math/rand"
 	"os"
 
 	"github.com/tuneinsight/lattigo/v6/circuits/ckks/bootstrapping"
@@ -20,7 +19,7 @@ import (
 	"gonum.org/v1/gonum/mat"
 )
 
-func main() {
+func Tmain() {
 
 	// var seed int64 = 22
 	// randomizer := rand.New(rand.NewSource(seed))
@@ -196,20 +195,20 @@ func toFloatArr(vecs []*mat.VecDense) (arr [][]float64) {
 	return arr
 }
 
-func fillDataset(dataset []*mat.VecDense) {
-	for i := range dataset {
-		rng := rand.Float64()
-		dataset[i] = mat.NewVecDense(2, []float64{0.5*math.Sin(rng*2*math.Pi) + 0.5, 0.5*math.Cos(rng*2*math.Pi) + 0.5}) //circle
-		// dataset[2*i] = mat.NewVecDense(2, []float64{rng, math.Cos(rng)})	// sin cos (1/2)
-		// dataset[2*i+1] = mat.NewVecDense(2, []float64{rng, math.Sin(rng)}) // sin cos (2/2)
-		// arr := make([]float64, dimensions)
-		// arr[0] = 0.5*rng + 0.2
-		// arr[1] = 0.2*rand.Float64() + 0.4
-		// dataset[i] = mat.NewVecDense(dimensions, arr) // rectangle area
-		// dataset[i] = mat.NewVecDense(2, []float64{0.5*rng + 0.2, 0.2*rand.Float64() + 0.4}) // rectangle area
-	}
+// func fillDataset(dataset []*mat.VecDense) {
+// 	for i := range dataset {
+// 		rng := rand.Float64()
+// 		dataset[i] = mat.NewVecDense(2, []float64{0.5*math.Sin(rng*2*math.Pi) + 0.5, 0.5*math.Cos(rng*2*math.Pi) + 0.5}) //circle
+// 		// dataset[2*i] = mat.NewVecDense(2, []float64{rng, math.Cos(rng)})	// sin cos (1/2)
+// 		// dataset[2*i+1] = mat.NewVecDense(2, []float64{rng, math.Sin(rng)}) // sin cos (2/2)
+// 		// arr := make([]float64, dimensions)
+// 		// arr[0] = 0.5*rng + 0.2
+// 		// arr[1] = 0.2*rand.Float64() + 0.4
+// 		// dataset[i] = mat.NewVecDense(dimensions, arr) // rectangle area
+// 		// dataset[i] = mat.NewVecDense(2, []float64{0.5*rng + 0.2, 0.2*rand.Float64() + 0.4}) // rectangle area
+// 	}
 
-}
+// }
 
 // func printRankedVecs(sampleCount int, ranked []*util.RankedPrototype, ecd *ckks.Encoder, dec *rlwe.Decryptor, logger *slog.Logger) {
 // 	sorted := make([]*rlwe.Ciphertext, sampleCount)

@@ -11,7 +11,6 @@ import (
 	"math/rand"
 	"os"
 
-	"github.com/JustinRudnick/CKKS-Lattigo-Examples/printing"
 	"github.com/tuneinsight/lattigo/v6/circuits/ckks/bootstrapping"
 	"github.com/tuneinsight/lattigo/v6/circuits/ckks/comparison"
 	"github.com/tuneinsight/lattigo/v6/circuits/ckks/minimax"
@@ -166,38 +165,42 @@ func main() {
 		Dec:          dec,
 	}
 
-	for i := range 10 {
-		var err error
-		ng, err := neuralgas.NewNorm(
-			encSamples,
-			uint(encSamples[0].Slots()),
-			uint(prototypeCount),
-			randomizer,
-			paramsNG,
-			encParamsNG,
-			maxCores,
-			logger)
-		if err != nil {
-			panic(err)
-		}
-
-		err = ng.Train(10*uint(i), uint(maxCores))
-		if err != nil {
-			panic(err)
-		}
-
-		msgs, err := encrypt.DecSamples(ng.Prototypes(), ecd, dec, logger)
-		if err != nil {
-			panic(err)
-		}
-
-		plotting.Plot2D(msgs, fmt.Sprintf("%d epoch(s)", i*10), fmt.Sprintf(".gitignore/plots/%dimg_0000%d", 0, i*10))
-		for _, msg := range msgs {
-			printing.PrintSlots(msg.RawVector().Data, msg.RawVector().Data, 2)
-			println()
-
-		}
+	// for i := range 10 {
+	// 	var err error
+	ng, err := neuralgas.NewNorm(
+		encSamples,
+		uint(encSamples[0].Slots()),
+		uint(prototypeCount),
+		randomizer,
+		paramsNG,
+		encParamsNG,
+		maxCores,
+		logger)
+	if err != nil {
+		panic(err)
 	}
+
+	err = ng.Train(10, uint(maxCores))
+	if err != nil {
+		panic(err)
+	}
+
+	msgs, err := encrypt.DecSamples(ng.Prototypes(), ecd, dec, logger)
+	if err != nil {
+		panic(err)
+	}
+
+	plotting.Plot2D(msgs, fmt.Sprintf("%d epoch(s)", 10), fmt.Sprintf(".gitignore/plots/%dimg_0000%d", 3, 10))
+	// for _, msg := range msgs {
+	// 	// printing.PrintSlots(msg.RawVector().Data, msg.RawVector().Data, 2)
+	// 	println()
+	// }
+
+	// }
+	// err = ng.TrainPlots(10, uint(maxCores), fmt.Sprintf(".gitignore/plots/%dimg_", 2), []int{0, 1, 2, 3, 4, 10, 20, 30, 40})
+	// if err != nil {
+	// 	panic(err)
+	// }
 
 }
 
@@ -248,13 +251,13 @@ func main() {
 
 // }
 
-func randArr(dimensions int, randomizer rand.Rand) []float64 {
-	arr := make([]float64, dimensions)
-	for i := range dimensions {
-		arr[i] = randomizer.Float64()
-	}
-	return arr
-}
+// func randArr(dimensions int, randomizer rand.Rand) []float64 {
+// 	arr := make([]float64, dimensions)
+// 	for i := range dimensions {
+// 		arr[i] = randomizer.Float64()
+// 	}
+// 	return arr
+// }
 
 func fillDataset(dataset []*mat.VecDense) {
 	for i := range len(dataset) {

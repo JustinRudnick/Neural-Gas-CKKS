@@ -74,6 +74,17 @@ func EquateLevel(ct0, ct1 *rlwe.Ciphertext, bootstrapper bootstrapping.Bootstrap
 
 }
 
+func AssureLevel(ct *rlwe.Ciphertext, bootstrapper bootstrapping.Bootstrapper, performBootstrap func(ctLevel int) bool) (res *rlwe.Ciphertext, err error) {
+	var bootstrapped *rlwe.Ciphertext
+	if performBootstrap(ct.Level()) {
+		bootstrapped, err = bootstrapper.Bootstrap(ct)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return bootstrapped, nil
+}
+
 // fills a vector with
 func fillVec(component float64, dimensions int) *mat.VecDense {
 	array := make([]float64, dimensions)
