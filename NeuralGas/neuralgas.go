@@ -27,7 +27,7 @@ type EncParams struct {
 	Cmp          *comparison.Evaluator
 	Bootstrapper *bootstrapping.Evaluator
 
-	Dec *rlwe.Decryptor //TODO delete
+	Dec *rlwe.Decryptor //[optional] - needed for TrainPlots()
 }
 
 type Params struct {
@@ -187,7 +187,8 @@ func (ng *NeuralGas) step(
 					}
 				}
 
-				diff, err = encrypt.MulCoeff(koeff, diff, ecd, enc, eval, params, bootstrapper)
+				factor := koeff
+				err = eval.Mul(diff, factor, diff)
 				if err != nil {
 					if logger != nil {
 						logger.Error(fmt.Sprintf("Multiplying coefficient to difference vector failed for prototype idx: %d at iteration %d", totalIdx, iteration))
@@ -355,6 +356,10 @@ func (ng NeuralGas) OptimizingPrototypeCount() int {
 
 func (ng NeuralGas) SetOptimizingPrototypeCount(new uint) {
 	ng.optimizingPrototypeCount = new
+}
+
+func (ng NeuralGas) PrototypeCount() int {
+	return len(ng.prototypes)
 }
 
 //###################### Helper functions ####################################################

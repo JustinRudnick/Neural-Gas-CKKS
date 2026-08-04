@@ -4,6 +4,7 @@ import (
 	encrypt "NeuralGasCKKS/Encrypt"
 	neuralgas "NeuralGasCKKS/NeuralGas"
 	plotting "NeuralGasCKKS/Plotting"
+	test "NeuralGasCKKS/Test"
 	util "NeuralGasCKKS/Util"
 	"fmt"
 	"log/slog"
@@ -18,6 +19,7 @@ import (
 	"github.com/tuneinsight/lattigo/v6/ring"
 	"github.com/tuneinsight/lattigo/v6/schemes/ckks"
 	"github.com/tuneinsight/lattigo/v6/utils"
+	"github.com/tuneinsight/lattigo/v6/utils/sampling"
 	"gonum.org/v1/gonum/mat"
 )
 
@@ -26,7 +28,15 @@ func main() {
 	var logger *slog.Logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
 	var seed int64 = 22
 	randomizer := rand.New(rand.NewSource(seed))
-	maxCores := 8
+	trainCores := 8
+	encCores := 1 //1 for deterministic purposes
+
+	resPath := "C:/GitHub/Neural-Gas-CKKS/files/"
+	resFile := "parallel.txt"
+
+	imageNumber := 1
+
+	epochs := 10
 
 	//------------------
 	// Initialization
@@ -37,15 +47,24 @@ func main() {
 
 	scalingFactor := 45
 	logAccuracy := 10
-	level := 20
+	level := 10
 	logQ := util.FillSlice(scalingFactor, level+1)
 	logQ[0] += logAccuracy
+
+	//-------- for deterministic purposes
+	key := []byte("key for research purposes") // 25 byte key. 0 - 32 bytes allowed
+	prng, err := sampling.NewKeyedPRNG(key)
+	if err != nil {
+		panic(err)
+	}
+
+	//-------- end of deterministic purposes
 
 	// 128-bit secure parameters enabling depth-7 circuits.
 	// LogN:4, LogQP: 431.
 	if params, err = ckks.NewParametersFromLiteral(
 		ckks.ParametersLiteral{
-			LogN:            4,             // log2(ring degree)
+			LogN:            4,             // log2(ring degree) (4 is minimum)
 			LogQ:            logQ,          // log2(primes Q) (ciphertext modulus)
 			LogP:            []int{61},     // log2(primes P) (auxiliary modulus)
 			LogDefaultScale: scalingFactor, // log2(scale)
@@ -65,14 +84,16 @@ func main() {
 		panic(err)
 	}
 
-	kgen := rlwe.NewKeyGenerator(params)     // Key Generator
-	sk := kgen.GenSecretKeyNew()             // Secret Key
-	ecd := ckks.NewEncoder(params)           // Encoder
-	enc := rlwe.NewEncryptor(params, sk)     // Encryptor
-	dec := rlwe.NewDecryptor(params, sk)     // Decryptor
-	rlk := kgen.GenRelinearizationKeyNew(sk) // Relinearization Key
-	evk := rlwe.NewMemEvaluationKeySet(rlk)  // Evaluation Key Set with the Relinearization Key
-	eval := ckks.NewEvaluator(params, evk)   // Evaluator
+	// kgen := rlwe.NewKeyGenerator(params) // Key Generator
+	kgen := rlwe.NewTestKeyGeneratorWithKeyedPRNG(params, prng) // deterministic Key Generator
+	sk := kgen.GenSecretKeyNew()                                // Secret Key
+	ecd := ckks.NewEncoder(params)                              // Encoder
+	// enc := rlwe.NewEncryptor(params, sk)     // Encryptor
+	enc := rlwe.NewTestEncryptorWithKeyedPRNG(params, sk, prng) // deterministic Encryptor
+	dec := rlwe.NewDecryptor(params, sk)                        // Decryptor
+	rlk := kgen.GenRelinearizationKeyNew(sk)                    // Relinearization Key
+	evk := rlwe.NewMemEvaluationKeySet(rlk)                     // Evaluation Key Set with the Relinearization Key
+	eval := ckks.NewEvaluator(params, evk)                      // Evaluator
 
 	slots := 1 << params.LogN()
 	batches := 1
@@ -91,6 +112,8 @@ func main() {
 		panic(err)
 	}
 	cmp := comparison.NewEvaluator(params, minimax.NewEvaluator(params, eval, bootstrapper))
+
+	test.Decryptor = dec
 
 	//------------------
 	// Samples init
@@ -129,16 +152,16 @@ func main() {
 	sampleCount := 40
 	var dataset []*mat.VecDense = make([]*mat.VecDense, sampleCount)
 
-	fillDataset(dataset)
+	fillDataset(dataset, randomizer) // deterministic tested
 
-	plotting.Plot2D(dataset, fmt.Sprintf("circle of %d prototypes", sampleCount), ".gitignore/plots/sample")
+	plotting.Plot2D(dataset, fmt.Sprintf("circle of %d prototypes", sampleCount), fmt.Sprintf(".gitignore/plots/%dsample", imageNumber))
 
 	//------------------
 	// Encoding & Encryption
 	//------------------
 
 	var encSamples []*rlwe.Ciphertext
-	if encSamples, err = encrypt.EncSamplesThreaded(dataset, ecd, enc, &params, maxCores, logger); err != nil {
+	if encSamples, err = encrypt.EncSamplesThreaded(dataset, ecd, enc, &params, encCores, logger); err != nil { //deterministic for maxCores == 1 -> not for maxCores != 1 tested
 		panic(err)
 	}
 
@@ -174,94 +197,43 @@ func main() {
 		randomizer,
 		paramsNG,
 		encParamsNG,
-		maxCores,
+		encCores,
 		logger)
 	if err != nil {
 		panic(err)
 	}
 
-	err = ng.Train(10, uint(maxCores))
+	err = ng.TrainPlots(uint(epochs), uint(trainCores), fmt.Sprintf(".gitignore/plots/%dimg_", imageNumber), []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 20, 30, 40})
 	if err != nil {
 		panic(err)
 	}
 
-	msgs, err := encrypt.DecSamples(ng.Prototypes(), ecd, dec, logger)
+	// open / create file and write down the contents
+	file, err := os.OpenFile(fmt.Sprintf("%s%s", resPath, resFile), os.O_CREATE|os.O_RDWR, 0644)
+	if err != nil {
+		panic(err)
+	}
+	defer file.Close()
+
+	err = file.Truncate(0)
 	if err != nil {
 		panic(err)
 	}
 
-	plotting.Plot2D(msgs, fmt.Sprintf("%d epoch(s)", 10), fmt.Sprintf(".gitignore/plots/%dimg_0000%d", 3, 10))
-	// for _, msg := range msgs {
-	// 	// printing.PrintSlots(msg.RawVector().Data, msg.RawVector().Data, 2)
-	// 	println()
-	// }
+	arrMat, err := encrypt.DecSamplesThreaded(encSamples, ecd, dec, trainCores, logger)
+	if err != nil {
+		panic(err)
+	}
 
-	// }
-	// err = ng.TrainPlots(10, uint(maxCores), fmt.Sprintf(".gitignore/plots/%dimg_", 2), []int{0, 1, 2, 3, 4, 10, 20, 30, 40})
-	// if err != nil {
-	// 	panic(err)
-	// }
+	for i := range arrMat {
+		file.WriteString(fmt.Sprintf("%f, %f\n", arrMat[i].RawVector().Data[0], arrMat[i].RawVector().Data[1]))
+	}
 
 }
 
-// func main() {
-// 	var seed int64 = 22
-
-// 	randomizer := rand.New(rand.NewSource(seed))
-// 	var dataset []*mat.VecDense = make([]*mat.VecDense, 100)
-
-// 	for i := range len(dataset) {
-// 		rng := rand.Float64()
-// 		// dataset[i] = mat.NewVecDense(2, []float64{0.5*math.Sin(rng*2*math.Pi) + 0.5, 0.5*math.Cos(rng*2*math.Pi) + 0.5}) //circle
-// 		// dataset[2*i] = mat.NewVecDense(2, []float64{rng, math.Cos(rng)})	// sin cos (1/2)
-// 		// dataset[2*i+1] = mat.NewVecDense(2, []float64{rng, math.Sin(rng)}) // sin cos (2/2)
-// 		dataset[i] = mat.NewVecDense(2, []float64{0.5*rng + 0.2, 0.2*rand.Float64() + 0.4}) // rectangle area
-// 	}
-
-// 	prototypeCount := 300
-
-// 	params := neuralgas.Params{
-// 		LearningRate_start:     0.5,
-// 		LearningRate_end:       0.005,
-// 		InnerTemperature_start: float64(prototypeCount) / 2.0,
-// 		InnerTemperature_end:   0.01}
-
-// 	ng500 := neuralgas.NewNorm(dataset, uint(prototypeCount), randomizer, params)
-// 	ng2000 := neuralgas.NewNorm(dataset, uint(prototypeCount), randomizer, params)
-// 	// ng10000 := neuralgas.NewNorm(dataset, uint(prototypeCount), randomizer, params)
-
-// 	plotting.Plot2D(dataset, "Samples", "plots/samples")
-
-// 	testreihe := 0
-// 	for i := range 10 {
-// 		ng := neuralgas.NewNorm(dataset,
-// 			uint(prototypeCount),
-// 			randomizer,
-// 			params)
-// 		ng.Train(uint(i))
-// 		plotting.Plot2D(ng.GetPrototypes(), fmt.Sprintf("%d epoch(s)", i), fmt.Sprintf("plots/%dimg_0000%d", testreihe, i))
-// 	}
-
-// 	ng500.Train(500)
-// 	plotting.Plot2D(ng500.GetPrototypes(), "500 epochs", fmt.Sprintf("plots/%dimg_00500", testreihe))
-// 	ng2000.Train(2000)
-// 	plotting.Plot2D(ng2000.GetPrototypes(), "2000 epochs", fmt.Sprintf("plots/%dimg_02000", testreihe))
-// 	// ng10000.Train(10000)
-// 	// plotting.Plot2D(ng10000.GetPrototypes(), "10000 epochs", fmt.Sprintf("plots/%dimg_10000", testreihe))
-
-// }
-
-// func randArr(dimensions int, randomizer rand.Rand) []float64 {
-// 	arr := make([]float64, dimensions)
-// 	for i := range dimensions {
-// 		arr[i] = randomizer.Float64()
-// 	}
-// 	return arr
-// }
-
-func fillDataset(dataset []*mat.VecDense) {
+func fillDataset(dataset []*mat.VecDense, RNG *rand.Rand) {
 	for i := range len(dataset) {
-		rng := rand.Float64()
+		rng := RNG.Float64()
 		dataset[i] = mat.NewVecDense(2, []float64{0.5*math.Sin(rng*2*math.Pi) + 0.5, 0.5*math.Cos(rng*2*math.Pi) + 0.5}) //circle
 		// dataset[2*i] = mat.NewVecDense(2, []float64{rng, math.Cos(rng)})	// sin cos (1/2)
 		// dataset[2*i+1] = mat.NewVecDense(2, []float64{rng, math.Sin(rng)}) // sin cos (2/2)
