@@ -81,8 +81,9 @@ func AssureLevel(ct *rlwe.Ciphertext, bootstrapper bootstrapping.Bootstrapper, p
 		if err != nil {
 			return nil, err
 		}
+		return bootstrapped, nil
 	}
-	return bootstrapped, nil
+	return ct, nil
 }
 
 // fills a vector with

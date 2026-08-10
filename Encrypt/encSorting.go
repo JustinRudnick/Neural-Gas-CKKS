@@ -7,6 +7,7 @@ import (
 
 	"github.com/tuneinsight/lattigo/v6/circuits/ckks/bootstrapping"
 	"github.com/tuneinsight/lattigo/v6/circuits/ckks/comparison"
+	"github.com/tuneinsight/lattigo/v6/circuits/ckks/mod1"
 	"github.com/tuneinsight/lattigo/v6/core/rlwe"
 	"github.com/tuneinsight/lattigo/v6/schemes/ckks"
 )
@@ -44,12 +45,12 @@ func SortElements(
 
 	sProto, lProto, err := EquateLevel(small.Prototype, large.Prototype, btp, func(minLvl int) bool { return minLvl < 2 })
 	if err != nil {
-		return err
+		return fmt.Errorf("EquateLevel failed: %s", err.Error())
 	}
 
 	sDist, lDist, err := EquateLevel(small.Distance, large.Distance, btp, func(minLvl int) bool { return minLvl < 2 })
 	if err != nil {
-		return err
+		return fmt.Errorf("EquateLevel failed: %s", err.Error())
 	}
 
 	diff, err := eval.SubNew(sDist, lDist)
@@ -59,7 +60,7 @@ func SortElements(
 
 	step, err := cmp.Step(diff)
 	if err != nil {
-		return err
+		return fmt.Errorf("Evaluating step failed: %s", err.Error())
 	}
 
 	invStep, err := eval.SubNew(identity, step)
@@ -69,23 +70,29 @@ func SortElements(
 
 	smallProto, err := min(sProto, lProto, step, invStep, eval)
 	if err != nil {
-		return err
+		return fmt.Errorf("min function for smallProto failed: %s", err.Error())
 	}
 	smallDist, err := min(sDist, lDist, step, invStep, eval)
 	if err != nil {
-		return err
+		return fmt.Errorf("min function for smallDist failed: %s", err.Error())
 	}
 
-	large.Prototype, err = max(sProto, lProto, step, invStep, eval)
+	largeProto, err := max(sProto, lProto, step, invStep, eval)
 	if err != nil {
-		return err
+		return fmt.Errorf("max function for largeProto failed: %s", err.Error())
 	}
-	large.Distance, err = max(sDist, lDist, step, invStep, eval)
+	largeDist, err := max(sDist, lDist, step, invStep, eval)
+	if err != nil {
+		return fmt.Errorf("max function for largeDist failed: %s", err.Error())
+	}
 
 	small.Prototype = smallProto
 	small.Distance = smallDist
 
-	return err
+	large.Prototype = largeProto
+	large.Distance = largeDist
+
+	return nil
 }
 
 /*
@@ -116,7 +123,7 @@ func BubbleSort(
 		logger.Info("Starting bubble sort.")
 	}
 
-	identity, err := IdentityCipher(array[0].Prototype.Slots(), ecd, enc, params)
+	identity, err := IdentityCipherInstance(array[0].Prototype.Slots())
 	if err != nil {
 		if logger != nil {
 			logger.Info("Identity Ciphertext could not be initialized.")
@@ -145,27 +152,6 @@ func BubbleSort(
 	return err
 }
 
-/*
-Returns a [rlwe.Ciphertext] that represents an encrypted identity vector of <slots> dimensions.
-*/
-func IdentityCipher(slots int, ecd *ckks.Encoder, enc *rlwe.Encryptor, params *ckks.Parameters) (identity *rlwe.Ciphertext, err error) {
-	oneSlice := make([]float64, slots)
-	for i := range oneSlice {
-		oneSlice[i] = 1
-	}
-	var pt *rlwe.Plaintext = ckks.NewPlaintext(*params, params.MaxLevel())
-	err = ecd.Encode(oneSlice, pt)
-	if err != nil {
-		return nil, err
-	}
-	identity, err = enc.EncryptNew(pt)
-	if err != nil {
-		return nil, err
-	}
-
-	return identity, nil
-}
-
 // WORKS tested
 func MaxTest(x0, x1, step, invStep *rlwe.Ciphertext, eval *ckks.Evaluator) (smoothMax *rlwe.Ciphertext, err error) {
 	return max(x0, x1, step, invStep, eval)
@@ -183,7 +169,7 @@ func MinTest(x0, x1, step, invStep *rlwe.Ciphertext, eval *ckks.Evaluator) (smoo
 
 [in] step ...step(x0 - x1) using Step function of [comparison.Evaluator]
 
-[in] invStep ...1 - step
+[in] invStep ...1 - step(x0 - x1)
 
 [in] eval ...evaluator to perform computations
 
@@ -191,7 +177,7 @@ func MinTest(x0, x1, step, invStep *rlwe.Ciphertext, eval *ckks.Evaluator) (smoo
 
 The smooth maximum of the [rlwe.Ciphertext]s x0, x1
 
-	Level of the smoothMin is 1 less than the input ciphertexts
+	Level of the smoothMax is 1 less than the input ciphertexts
 */
 func max(x0, x1, step, invStep *rlwe.Ciphertext, eval *ckks.Evaluator) (smoothMax *rlwe.Ciphertext, err error) {
 	prod0, err := eval.MulRelinNew(x0, step)
@@ -227,7 +213,7 @@ func max(x0, x1, step, invStep *rlwe.Ciphertext, eval *ckks.Evaluator) (smoothMa
 
 [in] step ...step(x0 - x1) using Step function of [comparison.Evaluator]
 
-[in] invStep ...1 - step
+[in] invStep ...1 - step(x0 - x1)
 
 [in] eval ...evaluator to perform computations
 
@@ -238,28 +224,14 @@ The smooth minimum of the [rlwe.Ciphertext]s x0, x1
 	Level of the smoothMin is 1 less than the input ciphertexts
 */
 func min(x0, x1, step, invStep *rlwe.Ciphertext, eval *ckks.Evaluator) (smoothMin *rlwe.Ciphertext, err error) {
-	prod0, err := eval.MulRelinNew(x0, invStep)
-	if err != nil {
-		return nil, err
-	}
-	err = eval.Rescale(prod0, prod0)
-	if err != nil {
-		return nil, err
-	}
+	return max(x0, x1, invStep, step, eval)
+}
 
-	prod1, err := eval.MulRelinNew(x1, step)
-	if err != nil {
-		return nil, err
-	}
-	err = eval.Rescale(prod1, prod1)
-	if err != nil {
-		return nil, err
-	}
+func CleanIntMod1(ct *rlwe.Ciphertext, evk *rlwe.EvaluationKey, mod1eval *mod1.Evaluator) (err error) {
+	return mod1eval.Evaluator.ApplyEvaluationKey(ct, evk, ct)
+}
 
-	err = eval.Add(prod0, prod1, prod0)
-	if err != nil {
-		return nil, err
-	}
-
-	return prod0, nil
+func CleanIntMod1New(ct *rlwe.Ciphertext, evk *rlwe.EvaluationKey, eval *ckks.Evaluator, mod1eval *mod1.Evaluator) (res *rlwe.Ciphertext, err error) {
+	ct = ckks.NewCiphertext(*eval.GetParameters(), ct.Degree(), ct.Level())
+	return ct, CleanIntMod1(ct, evk, mod1eval)
 }

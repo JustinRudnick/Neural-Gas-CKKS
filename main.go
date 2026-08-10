@@ -2,7 +2,6 @@ package main
 
 import (
 	encrypt "NeuralGasCKKS/Encrypt"
-	neuralgas "NeuralGasCKKS/NeuralGas"
 	plotting "NeuralGasCKKS/Plotting"
 	test "NeuralGasCKKS/Test"
 	util "NeuralGasCKKS/Util"
@@ -19,6 +18,7 @@ import (
 	"github.com/tuneinsight/lattigo/v6/ring"
 	"github.com/tuneinsight/lattigo/v6/schemes/ckks"
 	"github.com/tuneinsight/lattigo/v6/utils"
+	"github.com/tuneinsight/lattigo/v6/utils/bignum"
 	"github.com/tuneinsight/lattigo/v6/utils/sampling"
 	"gonum.org/v1/gonum/mat"
 )
@@ -28,15 +28,15 @@ func main() {
 	var logger *slog.Logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
 	var seed int64 = 22
 	randomizer := rand.New(rand.NewSource(seed))
-	trainCores := 8
+	// trainCores := 1
 	encCores := 1 //1 for deterministic purposes
 
-	resPath := "C:/GitHub/Neural-Gas-CKKS/files/"
-	resFile := "parallel.txt"
+	// resPath := "C:/GitHub/Neural-Gas-CKKS/files/"
+	// resFile := "single.txt"
 
-	imageNumber := 1
+	imageNumber := 2
 
-	epochs := 10
+	// epochs := 10
 
 	//------------------
 	// Initialization
@@ -169,65 +169,83 @@ func main() {
 	// Neural Gas init
 	//------------------
 
-	prototypeCount := 10
+	// an identity cipher that needs to be initialized before training (needed in sorting for invStep)
+	encrypt.IdentityCipherCreateInstance(encSamples[0].Slots(), ecd, enc, &params)
 
-	paramsNG := neuralgas.Params{
-		LearningRate_initial:     0.5,
-		LearningRate_final:       0.005,
-		InnerTemperature_initial: float64(prototypeCount) / 2.0,
-		InnerTemperature_final:   0.01,
+	n := len(cmp.MinimaxCompositeSignPolynomial)
+
+	stepPoly := make([]bignum.Polynomial, n)
+
+	for i := 0; i < n; i++ {
+		stepPoly[i] = cmp.MinimaxCompositeSignPolynomial[i]
+		// fmt.Fprintf(os.Stdin, "", nil, " ", stepPoly[i].Basis)
+
+		for _, coeff := range stepPoly[i].Coeffs {
+			co, _ := coeff.Real().Float64()
+			fmt.Printf(" %f", co)
+		}
+		fmt.Println()
 	}
 
-	encParamsNG := neuralgas.EncParams{
-		Ecd:          ecd,
-		Enc:          enc,
-		Eval:         eval,
-		Params:       &params,
-		Cmp:          cmp,
-		Bootstrapper: bootstrapper,
-		Dec:          dec,
-	}
+	// prototypeCount := 10
+
+	// paramsNG := neuralgas.Params{
+	// 	LearningRate_initial:     0.5,
+	// 	LearningRate_final:       0.005,
+	// 	InnerTemperature_initial: float64(prototypeCount) / 2.0,
+	// 	InnerTemperature_final:   0.01,
+	// }
+
+	// encParamsNG := neuralgas.EncParams{
+	// 	Ecd:          ecd,
+	// 	Enc:          enc,
+	// 	Eval:         eval,
+	// 	Params:       &params,
+	// 	Cmp:          cmp,
+	// 	Bootstrapper: bootstrapper,
+	// 	Dec:          dec,
+	// }
 
 	// for i := range 10 {
 	// 	var err error
-	ng, err := neuralgas.NewNorm(
-		encSamples,
-		uint(encSamples[0].Slots()),
-		uint(prototypeCount),
-		randomizer,
-		paramsNG,
-		encParamsNG,
-		encCores,
-		logger)
-	if err != nil {
-		panic(err)
-	}
+	// ng, err := neuralgas.NewNorm(
+	// 	encSamples,
+	// 	uint(encSamples[0].Slots()),
+	// 	uint(prototypeCount),
+	// 	randomizer,
+	// 	paramsNG,
+	// 	encParamsNG,
+	// 	encCores,
+	// 	logger)
+	// if err != nil {
+	// 	panic(err)
+	// }
 
-	err = ng.TrainPlots(uint(epochs), uint(trainCores), fmt.Sprintf(".gitignore/plots/%dimg_", imageNumber), []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 20, 30, 40})
-	if err != nil {
-		panic(err)
-	}
+	// err = ng.TrainPlots(uint(epochs), uint(trainCores), fmt.Sprintf(".gitignore/plots/%dimg_", imageNumber), []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 20, 30, 40})
+	// if err != nil {
+	// 	panic(err)
+	// }
 
-	// open / create file and write down the contents
-	file, err := os.OpenFile(fmt.Sprintf("%s%s", resPath, resFile), os.O_CREATE|os.O_RDWR, 0644)
-	if err != nil {
-		panic(err)
-	}
-	defer file.Close()
+	// // open / create file and write down the contents
+	// file, err := os.OpenFile(fmt.Sprintf("%s%s", resPath, resFile), os.O_CREATE|os.O_RDWR, 0644)
+	// if err != nil {
+	// 	panic(err)
+	// }
+	// defer file.Close()
 
-	err = file.Truncate(0)
-	if err != nil {
-		panic(err)
-	}
+	// err = file.Truncate(0)
+	// if err != nil {
+	// 	panic(err)
+	// }
 
-	arrMat, err := encrypt.DecSamplesThreaded(encSamples, ecd, dec, trainCores, logger)
-	if err != nil {
-		panic(err)
-	}
+	// arrMat, err := encrypt.DecSamplesThreaded(ng.Prototypes(), ecd, dec, trainCores, logger)
+	// if err != nil {
+	// 	panic(err)
+	// }
 
-	for i := range arrMat {
-		file.WriteString(fmt.Sprintf("%f, %f\n", arrMat[i].RawVector().Data[0], arrMat[i].RawVector().Data[1]))
-	}
+	// for i := range arrMat {
+	// 	file.WriteString(fmt.Sprintf("%.17f, %.17f\n", arrMat[i].RawVector().Data[0], arrMat[i].RawVector().Data[1]))
+	// }
 
 }
 
