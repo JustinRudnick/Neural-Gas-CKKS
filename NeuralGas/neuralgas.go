@@ -238,12 +238,14 @@ func (ng *NeuralGas) step(
 /*
 Trains the prototypes of this [NeuralGas] for the amount of <epochs> using <maxCores> threads.
 */
-func (ng *NeuralGas) Train(epochs uint, maxCores uint) (err error) {
+func (ng *NeuralGas) Train(epochs uint, scaleUpBits int, maxCores uint) (err error) {
 	initialT := time.Now()
 	if ng.isLogged {
 		ng.logger.Info(fmt.Sprintf("Begin training for %d epoch(s) using %d threads.", epochs, maxCores))
 	}
 
+	bootstrapper := ng.EncParams.Bootstrapper
+	eval := ng.EncParams.Eval
 	mod1eval := ng.EncParams.Mod1Evaluator
 	if mod1eval != nil {
 		return fmt.Errorf("neural gas encryption parameter Mod1Evaluator is nil.")
@@ -266,9 +268,18 @@ func (ng *NeuralGas) Train(epochs uint, maxCores uint) (err error) {
 				return err
 			}
 
-			// //clean prototypes
-			// for _, prototype := range
-			// encrypt.CleanIntMod1()
+			//clean up prototypes
+			for _, prototype := range rankedPrototypes {
+				prototype.Prototype, err = encrypt.AssureLevel(prototype.Prototype, bootstrapper, func(ctLevel int) bool { return ctLevel < 2 })
+				if err != nil {
+					return fmt.Errorf("Level assurance failed: %s", err.Error())
+				}
+
+				err = encrypt.CleanUpMod1(prototype.Prototype, scaleUpBits, eval, mod1eval)
+				if err != nil {
+					return fmt.Errorf("Clean up could not be evaluated: %s", err.Error())
+				}
+			}
 
 			for i := range rankedPrototypes {
 				ng.prototypes[i] = rankedPrototypes[i].Prototype
@@ -290,7 +301,7 @@ func (ng *NeuralGas) Train(epochs uint, maxCores uint) (err error) {
 
 }
 
-func (ng *NeuralGas) TrainPlots(epochs uint, maxCores uint, filenames string, plotEpochs []int) (err error) {
+func (ng *NeuralGas) TrainPlots(epochs uint, scaleUpBits int, maxCores uint, filenames string, plotEpochs []int) (err error) {
 	initialT := time.Now()
 	if ng.isLogged {
 		ng.logger.Info(fmt.Sprintf("Begin training for %d epoch(s) using %d threads.", epochs, maxCores))
@@ -298,7 +309,13 @@ func (ng *NeuralGas) TrainPlots(epochs uint, maxCores uint, filenames string, pl
 
 	ecd := ng.EncParams.Ecd
 	dec := ng.EncParams.Dec
+	eval := ng.EncParams.Eval
+	bootstrapper := ng.EncParams.Bootstrapper
 	logger := ng.logger
+	mod1eval := ng.EncParams.Mod1Evaluator
+	if mod1eval != nil {
+		return fmt.Errorf("neural gas encryption parameter Mod1Evaluator is nil.")
+	}
 
 	iteration := 0
 	totalIterations := int(epochs) * len(ng.samples)
@@ -315,6 +332,19 @@ func (ng *NeuralGas) TrainPlots(epochs uint, maxCores uint, filenames string, pl
 			err = ng.step(sample, rankedPrototypes, iteration, totalIterations, int(maxCores))
 			if err != nil {
 				return fmt.Errorf("Evaluating adaption step failed: %s", err.Error())
+			}
+
+			//clean up prototypes
+			for _, prototype := range rankedPrototypes {
+				prototype.Prototype, err = encrypt.AssureLevel(prototype.Prototype, bootstrapper, func(ctLevel int) bool { return ctLevel < 2 })
+				if err != nil {
+					return fmt.Errorf("Level assurance failed: %s", err.Error())
+				}
+
+				err = encrypt.CleanUpMod1(prototype.Prototype, scaleUpBits, eval, mod1eval)
+				if err != nil {
+					return fmt.Errorf("Clean up could not be evaluated: %s", err.Error())
+				}
 			}
 
 			for i := range rankedPrototypes {

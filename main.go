@@ -38,6 +38,7 @@ func main() {
 	imageNumber := 2
 
 	epochs := 10
+	scaleBits := 10 // ~3 decimal places precision
 
 	//------------------
 	// Initialization
@@ -220,7 +221,7 @@ func main() {
 		panic(err)
 	}
 
-	err = ng.TrainPlots(uint(epochs), uint(trainCores), fmt.Sprintf(".gitignore/plots/%dimg_", imageNumber), []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 20, 30, 40})
+	err = ng.TrainPlots(uint(epochs), scaleBits, uint(trainCores), fmt.Sprintf(".gitignore/plots/%dimg_", imageNumber), []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 20, 30, 40})
 	if err != nil {
 		panic(err)
 	}
