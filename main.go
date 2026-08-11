@@ -2,6 +2,7 @@ package main
 
 import (
 	encrypt "NeuralGasCKKS/Encrypt"
+	neuralgas "NeuralGasCKKS/NeuralGas"
 	plotting "NeuralGasCKKS/Plotting"
 	test "NeuralGasCKKS/Test"
 	util "NeuralGasCKKS/Util"
@@ -28,15 +29,15 @@ func main() {
 	var logger *slog.Logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
 	var seed int64 = 22
 	randomizer := rand.New(rand.NewSource(seed))
-	// trainCores := 1
+	trainCores := 1
 	encCores := 1 //1 for deterministic purposes
 
-	// resPath := "C:/GitHub/Neural-Gas-CKKS/files/"
-	// resFile := "single.txt"
+	resPath := "C:/GitHub/Neural-Gas-CKKS/files/"
+	resFile := "single.txt"
 
 	imageNumber := 2
 
-	// epochs := 10
+	epochs := 10
 
 	//------------------
 	// Initialization
@@ -187,65 +188,63 @@ func main() {
 		fmt.Println()
 	}
 
-	// prototypeCount := 10
+	prototypeCount := 10
 
-	// paramsNG := neuralgas.Params{
-	// 	LearningRate_initial:     0.5,
-	// 	LearningRate_final:       0.005,
-	// 	InnerTemperature_initial: float64(prototypeCount) / 2.0,
-	// 	InnerTemperature_final:   0.01,
-	// }
+	paramsNG := neuralgas.Params{
+		LearningRate_initial:     0.5,
+		LearningRate_final:       0.005,
+		InnerTemperature_initial: float64(prototypeCount) / 2.0,
+		InnerTemperature_final:   0.01,
+	}
 
-	// encParamsNG := neuralgas.EncParams{
-	// 	Ecd:          ecd,
-	// 	Enc:          enc,
-	// 	Eval:         eval,
-	// 	Params:       &params,
-	// 	Cmp:          cmp,
-	// 	Bootstrapper: bootstrapper,
-	// 	Dec:          dec,
-	// }
+	encParamsNG := neuralgas.EncParams{
+		Ecd:          ecd,
+		Enc:          enc,
+		Eval:         eval,
+		Params:       &params,
+		Cmp:          cmp,
+		Bootstrapper: bootstrapper,
+		Dec:          dec,
+	}
 
-	// for i := range 10 {
-	// 	var err error
-	// ng, err := neuralgas.NewNorm(
-	// 	encSamples,
-	// 	uint(encSamples[0].Slots()),
-	// 	uint(prototypeCount),
-	// 	randomizer,
-	// 	paramsNG,
-	// 	encParamsNG,
-	// 	encCores,
-	// 	logger)
-	// if err != nil {
-	// 	panic(err)
-	// }
+	ng, err := neuralgas.NewNorm(
+		encSamples,
+		uint(encSamples[0].Slots()),
+		uint(prototypeCount),
+		randomizer,
+		paramsNG,
+		encParamsNG,
+		encCores,
+		logger)
+	if err != nil {
+		panic(err)
+	}
 
-	// err = ng.TrainPlots(uint(epochs), uint(trainCores), fmt.Sprintf(".gitignore/plots/%dimg_", imageNumber), []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 20, 30, 40})
-	// if err != nil {
-	// 	panic(err)
-	// }
+	err = ng.TrainPlots(uint(epochs), uint(trainCores), fmt.Sprintf(".gitignore/plots/%dimg_", imageNumber), []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 20, 30, 40})
+	if err != nil {
+		panic(err)
+	}
 
-	// // open / create file and write down the contents
-	// file, err := os.OpenFile(fmt.Sprintf("%s%s", resPath, resFile), os.O_CREATE|os.O_RDWR, 0644)
-	// if err != nil {
-	// 	panic(err)
-	// }
-	// defer file.Close()
+	// open / create file and write down the contents
+	file, err := os.OpenFile(fmt.Sprintf("%s%s", resPath, resFile), os.O_CREATE|os.O_RDWR, 0644)
+	if err != nil {
+		panic(err)
+	}
+	defer file.Close()
 
-	// err = file.Truncate(0)
-	// if err != nil {
-	// 	panic(err)
-	// }
+	err = file.Truncate(0)
+	if err != nil {
+		panic(err)
+	}
 
-	// arrMat, err := encrypt.DecSamplesThreaded(ng.Prototypes(), ecd, dec, trainCores, logger)
-	// if err != nil {
-	// 	panic(err)
-	// }
+	arrMat, err := encrypt.DecSamplesThreaded(ng.Prototypes(), ecd, dec, trainCores, logger)
+	if err != nil {
+		panic(err)
+	}
 
-	// for i := range arrMat {
-	// 	file.WriteString(fmt.Sprintf("%.17f, %.17f\n", arrMat[i].RawVector().Data[0], arrMat[i].RawVector().Data[1]))
-	// }
+	for i := range arrMat {
+		file.WriteString(fmt.Sprintf("%.17f, %.17f\n", arrMat[i].RawVector().Data[0], arrMat[i].RawVector().Data[1]))
+	}
 
 }
 
@@ -258,4 +257,15 @@ func fillDataset(dataset []*mat.VecDense, RNG *rand.Rand) {
 		// dataset[i] = mat.NewVecDense(2, []float64{0.5*rng + 0.2, 0.2*rand.Float64() + 0.4}) // rectangle area
 	}
 
+}
+
+func PrintSlice[T any](slice []T, printableElement func(elem T) any) {
+	fmt.Printf("[")
+	for i, elem := range slice {
+		print(printableElement(elem))
+		if i != len(slice)-1 {
+			print(", ")
+		}
+	}
+	fmt.Printf("]\n")
 }
