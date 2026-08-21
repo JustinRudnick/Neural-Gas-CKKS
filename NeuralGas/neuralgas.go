@@ -15,19 +15,21 @@ import (
 	"github.com/tuneinsight/lattigo/v6/circuits/ckks/bootstrapping"
 	"github.com/tuneinsight/lattigo/v6/circuits/ckks/comparison"
 	"github.com/tuneinsight/lattigo/v6/circuits/ckks/mod1"
+	"github.com/tuneinsight/lattigo/v6/circuits/ckks/polynomial"
 	"github.com/tuneinsight/lattigo/v6/core/rlwe"
 	"github.com/tuneinsight/lattigo/v6/schemes/ckks"
 	"gonum.org/v1/gonum/mat"
 )
 
 type EncParams struct {
-	Ecd           *ckks.Encoder
-	Enc           *rlwe.Encryptor
-	Eval          *ckks.Evaluator
-	Params        *ckks.Parameters
-	Cmp           *comparison.Evaluator
-	Bootstrapper  *bootstrapping.Evaluator
-	Mod1Evaluator *mod1.Evaluator
+	Ecd             *ckks.Encoder
+	Enc             *rlwe.Encryptor
+	Eval            *ckks.Evaluator
+	Params          *ckks.Parameters
+	Cmp             *comparison.Evaluator
+	Bootstrapper    *bootstrapping.Evaluator
+	Mod1Evaluator   *mod1.Evaluator
+	LogCleanUpScale int //used to clean up prototypes to preserve better precision if chosen smaller than precision
 
 	Dec *rlwe.Decryptor //[optional] - needed for TrainPlots()
 }
@@ -269,7 +271,7 @@ func (ng *NeuralGas) Train(epochs uint, scaleUpBits int, maxCores uint) (err err
 			}
 
 			//clean up prototypes
-			for _, prototype := range rankedPrototypes {
+			for i, prototype := range rankedPrototypes {
 				prototype.Prototype, err = encrypt.AssureLevel(prototype.Prototype, bootstrapper, func(ctLevel int) bool { return ctLevel < 2 })
 				if err != nil {
 					return fmt.Errorf("Level assurance failed: %s", err.Error())
@@ -279,9 +281,7 @@ func (ng *NeuralGas) Train(epochs uint, scaleUpBits int, maxCores uint) (err err
 				if err != nil {
 					return fmt.Errorf("Clean up could not be evaluated: %s", err.Error())
 				}
-			}
 
-			for i := range rankedPrototypes {
 				ng.prototypes[i] = rankedPrototypes[i].Prototype
 			}
 
@@ -312,10 +312,32 @@ func (ng *NeuralGas) TrainPlots(epochs uint, scaleUpBits int, maxCores uint, fil
 	eval := ng.EncParams.Eval
 	bootstrapper := ng.EncParams.Bootstrapper
 	logger := ng.logger
-	mod1eval := ng.EncParams.Mod1Evaluator
-	if mod1eval != nil {
-		return fmt.Errorf("neural gas encryption parameter Mod1Evaluator is nil.")
-	}
+	// mod1eval := ng.EncParams.Mod1Evaluator
+	// if mod1eval == nil {
+	// 	return fmt.Errorf("neural gas encryption parameter Mod1Evaluator is nil.")
+	// }
+
+	originalInterval := 2 //TODO get correct interval
+
+	// mod1Literal := mod1.ParametersLiteral{
+	// 	LevelQ:   0,                                     // starting level of the operation
+	// 	LogScale: ng.EncParams.Params.LogDefaultScale(), // log2 of the default scaling factor
+	// 	Mod1Type: bootstrapping.DefaultMod1Type,         //mod1.CosContinuous,  // type of approximation for the f: x mod 1 function
+	// 	Scaling:  1.0,                                   /*scaling applied to output ciphertext of mod1 evaluation
+	// 	- participates in the function normalization/approximation construction.
+	// 	It should be chosen according to the Mod1 circuit's intended input range and approximation parameters,
+	// 	rather than treated as an arbitrary post-processing multiplier.*/
+
+	// 	LogMessageRatio: 8,                                                      // Log2 of the ratio between Q0 and m, i.e. Q[0]/|m|
+	// 	K:               (1 << ng.EncParams.LogCleanUpScale) * originalInterval, // interval [-K, K]
+	// 	Mod1Degree:      7,
+	// 	DoubleAngle:     3, // Number of rescale and double angle formula (only applies for cos and is ignored if sin is used)
+	// 	Mod1InvDegree:   7,
+	// 	// QDiff           float64            // Q / 2^round(Log2(Q))
+	// 	// Sqrt2Pi         float64            // (1/2pi)^(1.0/scFac)
+	// 	// Mod1Poly        bignum.Polynomial  // Polynomial for f: x mod 1
+	// 	// Mod1InvPoly     *bignum.Polynomial // Polynomial for f^-1: (x mod 1)^-1
+	// }
 
 	iteration := 0
 	totalIterations := int(epochs) * len(ng.samples)
@@ -335,17 +357,25 @@ func (ng *NeuralGas) TrainPlots(epochs uint, scaleUpBits int, maxCores uint, fil
 			}
 
 			//clean up prototypes
-			for _, prototype := range rankedPrototypes {
-				prototype.Prototype, err = encrypt.AssureLevel(prototype.Prototype, bootstrapper, func(ctLevel int) bool { return ctLevel < 2 })
-				if err != nil {
-					return fmt.Errorf("Level assurance failed: %s", err.Error())
-				}
+			// for _, prototype := range rankedPrototypes {
+			// 	prototype.Prototype, err = encrypt.AssureLevel(prototype.Prototype, bootstrapper, func(ctLevel int) bool { return ctLevel < 2 })
+			// 	if err != nil {
+			// 		return fmt.Errorf("Level assurance failed: %s", err.Error())
+			// 	}
+			// 	// fmt.Println("prototype.Prototype: ", prototype.Prototype)
+			// 	logger.Info("prototype before clean up")
 
-				err = encrypt.CleanUpMod1(prototype.Prototype, scaleUpBits, eval, mod1eval)
-				if err != nil {
-					return fmt.Errorf("Clean up could not be evaluated: %s", err.Error())
-				}
-			}
+			// 	mod1Literal.LevelQ = prototype.Prototype.LevelQ()
+			// 	mod1Params, err := mod1.NewParametersFromLiteral(*ng.EncParams.Params, mod1Literal)
+			// 	mod1Eval := mod1.NewEvaluator(eval, polynomial.NewEvaluator(*ng.EncParams.Params, eval), mod1Params)
+
+			// 	err = encrypt.CleanUpMod1(prototype.Prototype, scaleUpBits, eval, mod1Eval)
+			// 	if err != nil {
+			// 		return fmt.Errorf("Clean up could not be evaluated: %s", err.Error())
+			// 	}
+
+			// 	logger.Info("prototype after clean up")
+			// }
 
 			for i := range rankedPrototypes {
 				ng.prototypes[i] = rankedPrototypes[i].Prototype
@@ -353,6 +383,75 @@ func (ng *NeuralGas) TrainPlots(epochs uint, scaleUpBits int, maxCores uint, fil
 
 			iteration++
 		}
+
+		var errors chan error = make(chan error, 1)
+
+		parallelize.MultiThread[*float64, *util.RankedPrototype](
+			nil,
+			rankedPrototypes,
+			int(maxCores),
+			func(item *float64,
+				subSlice []*util.RankedPrototype,
+				originalStartIndex int,
+				wg *sync.WaitGroup) {
+				defer wg.Done()
+
+				mod1Literal := mod1.ParametersLiteral{
+					LevelQ:   0,                                     // starting level of the operation
+					LogScale: ng.EncParams.Params.LogDefaultScale(), // log2 of the default scaling factor
+					Mod1Type: bootstrapping.DefaultMod1Type,         //mod1.CosContinuous,  // type of approximation for the f: x mod 1 function
+					Scaling:  1.0,                                   /*scaling applied to output ciphertext of mod1 evaluation
+					- participates in the function normalization/approximation construction.
+					It should be chosen according to the Mod1 circuit's intended input range and approximation parameters,
+					rather than treated as an arbitrary post-processing multiplier.*/
+
+					LogMessageRatio: 8,                                                      // Log2 of the ratio between Q0 and m, i.e. Q[0]/|m|
+					K:               (1 << ng.EncParams.LogCleanUpScale) * originalInterval, // interval [-K, K]
+					Mod1Degree:      7,
+					DoubleAngle:     3, // Number of rescale and double angle formula (only applies for cos and is ignored if sin is used)
+					Mod1InvDegree:   7,
+					// QDiff           float64            // Q / 2^round(Log2(Q))
+					// Sqrt2Pi         float64            // (1/2pi)^(1.0/scFac)
+					// Mod1Poly        bignum.Polynomial  // Polynomial for f: x mod 1
+					// Mod1InvPoly     *bignum.Polynomial // Polynomial for f^-1: (x mod 1)^-1
+				}
+
+				for i, prototype := range subSlice {
+					totalIdx := originalStartIndex + i
+
+					prototype.Prototype, err = encrypt.AssureLevel(prototype.Prototype, bootstrapper, func(ctLevel int) bool { return ctLevel < 2 })
+					if err != nil {
+						if logger != nil {
+							logger.Error(fmt.Sprintf("Level Assurance failed: %d at iteration %d", totalIdx, iteration))
+						}
+						select {
+						case errors <- fmt.Errorf("Level Assurance failed:\n\t%w", err): // non blocking
+							return
+						default:
+						}
+					}
+					// fmt.Println("prototype.Prototype: ", prototype.Prototype)
+					logger.Info("prototype before clean up")
+
+					mod1Literal.LevelQ = prototype.Prototype.LevelQ() - 1 //-1: Rescale in CleanUpMod1()
+					mod1Params, err := mod1.NewParametersFromLiteral(*ng.EncParams.Params, mod1Literal)
+					mod1Eval := mod1.NewEvaluator(eval, polynomial.NewEvaluator(*ng.EncParams.Params, eval), mod1Params)
+
+					err = encrypt.CleanUpMod1(prototype.Prototype, scaleUpBits, eval, mod1Eval)
+					if err != nil {
+						if logger != nil {
+							logger.Error(fmt.Sprintf("Clean Up failed at position: %d at iteration %d", totalIdx, iteration))
+						}
+						select {
+						case errors <- fmt.Errorf("Clean Up failed:\n\t%w", err): // non blocking
+							return
+						default:
+						}
+					}
+
+					logger.Info("prototype after clean up")
+				}
+			})
 
 		plotEpoch := false
 		for _, ep := range plotEpochs {

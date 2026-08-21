@@ -19,7 +19,6 @@ import (
 	"github.com/tuneinsight/lattigo/v6/ring"
 	"github.com/tuneinsight/lattigo/v6/schemes/ckks"
 	"github.com/tuneinsight/lattigo/v6/utils"
-	"github.com/tuneinsight/lattigo/v6/utils/bignum"
 	"github.com/tuneinsight/lattigo/v6/utils/sampling"
 	"gonum.org/v1/gonum/mat"
 )
@@ -29,13 +28,13 @@ func main() {
 	var logger *slog.Logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
 	var seed int64 = 22
 	randomizer := rand.New(rand.NewSource(seed))
-	trainCores := 1
+	trainCores := 8
 	encCores := 1 //1 for deterministic purposes
 
 	resPath := "C:/GitHub/Neural-Gas-CKKS/files/"
-	resFile := "single.txt"
+	resFile := "cleanup.txt"
 
-	imageNumber := 2
+	imageNumber := 6
 
 	epochs := 10
 	scaleBits := 10 // ~3 decimal places precision
@@ -47,10 +46,10 @@ func main() {
 	var err error
 	var params ckks.Parameters
 
-	scalingFactor := 45
+	logScalingFactor := 45
 	logAccuracy := 10
 	level := 10
-	logQ := util.FillSlice(scalingFactor, level+1)
+	logQ := util.FillSlice(logScalingFactor, level+1)
 	logQ[0] += logAccuracy
 
 	//-------- for deterministic purposes
@@ -62,14 +61,13 @@ func main() {
 
 	//-------- end of deterministic purposes
 
-	// 128-bit secure parameters enabling depth-7 circuits.
-	// LogN:4, LogQP: 431.
+	// LogN:4, LogQP: sum of all LogQ and LogP components.
 	if params, err = ckks.NewParametersFromLiteral(
 		ckks.ParametersLiteral{
-			LogN:            4,             // log2(ring degree) (4 is minimum)
-			LogQ:            logQ,          // log2(primes Q) (ciphertext modulus)
-			LogP:            []int{61},     // log2(primes P) (auxiliary modulus)
-			LogDefaultScale: scalingFactor, // log2(scale)
+			LogN:            4,                // log2(ring degree) (4 is minimum)
+			LogQ:            logQ,             // log2(primes Q) (ciphertext modulus)
+			LogP:            []int{61},        // log2(primes P) (auxiliary modulus)
+			LogDefaultScale: logScalingFactor, // log2(scale)
 			RingType:        ring.ConjugateInvariant,
 		}); err != nil {
 		panic(err)
@@ -174,20 +172,20 @@ func main() {
 	// an identity cipher that needs to be initialized before training (needed in sorting for invStep)
 	encrypt.IdentityCipherCreateInstance(encSamples[0].Slots(), ecd, enc, &params)
 
-	n := len(cmp.MinimaxCompositeSignPolynomial)
+	// n := len(cmp.MinimaxCompositeSignPolynomial)
 
-	stepPoly := make([]bignum.Polynomial, n)
+	// stepPoly := make([]bignum.Polynomial, n)
 
-	for i := 0; i < n; i++ {
-		stepPoly[i] = cmp.MinimaxCompositeSignPolynomial[i]
-		// fmt.Fprintf(os.Stdin, "", nil, " ", stepPoly[i].Basis)
+	// for i := 0; i < n; i++ {
+	// 	stepPoly[i] = cmp.MinimaxCompositeSignPolynomial[i]
+	// 	// fmt.Fprintf(os.Stdin, "", nil, " ", stepPoly[i].Basis)
 
-		for _, coeff := range stepPoly[i].Coeffs {
-			co, _ := coeff.Real().Float64()
-			fmt.Printf(" %f", co)
-		}
-		fmt.Println()
-	}
+	// 	for _, coeff := range stepPoly[i].Coeffs {
+	// 		co, _ := coeff.Real().Float64()
+	// 		fmt.Printf(" %f", co)
+	// 	}
+	// 	fmt.Println()
+	// }
 
 	prototypeCount := 10
 
@@ -199,13 +197,15 @@ func main() {
 	}
 
 	encParamsNG := neuralgas.EncParams{
-		Ecd:          ecd,
-		Enc:          enc,
-		Eval:         eval,
-		Params:       &params,
-		Cmp:          cmp,
-		Bootstrapper: bootstrapper,
-		Dec:          dec,
+		Ecd:             ecd,
+		Enc:             enc,
+		Eval:            eval,
+		Params:          &params,
+		Cmp:             cmp,
+		Bootstrapper:    bootstrapper,
+		Dec:             dec,
+		Mod1Evaluator:   nil,
+		LogCleanUpScale: 10,
 	}
 
 	ng, err := neuralgas.NewNorm(
@@ -258,15 +258,4 @@ func fillDataset(dataset []*mat.VecDense, RNG *rand.Rand) {
 		// dataset[i] = mat.NewVecDense(2, []float64{0.5*rng + 0.2, 0.2*rand.Float64() + 0.4}) // rectangle area
 	}
 
-}
-
-func PrintSlice[T any](slice []T, printableElement func(elem T) any) {
-	fmt.Printf("[")
-	for i, elem := range slice {
-		print(printableElement(elem))
-		if i != len(slice)-1 {
-			print(", ")
-		}
-	}
-	fmt.Printf("]\n")
 }

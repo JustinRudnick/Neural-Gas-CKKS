@@ -20,8 +20,8 @@ func CkksLevels(logScalingFactor, logAccuracy, levels int) []float64 {
 	return arr
 }
 
-func FillSlice(value int, dims int) []int {
-	arr := make([]int, dims)
+func FillSlice[T any](value T, dims int) []T {
+	arr := make([]T, dims)
 	for i := range dims {
 		arr[i] = value
 	}

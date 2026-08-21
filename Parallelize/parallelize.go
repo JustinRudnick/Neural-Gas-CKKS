@@ -14,6 +14,7 @@ Blocks until all goroutines are done.
 Calls [runtime.SetDefaultGOMAXPROCS] in the end.
 */
 func MultiThread[K, T any](item K, items []T, maxCores int, function func(item K, subSlice []T, originalStartIndex int, wg *sync.WaitGroup)) {
+	stdCores := runtime.GOMAXPROCS(0)
 	runtime.GOMAXPROCS(int(math.Min(float64(maxCores), float64(runtime.NumCPU()))))
 	var wg sync.WaitGroup
 
@@ -40,5 +41,5 @@ func MultiThread[K, T any](item K, items []T, maxCores int, function func(item K
 	function(item, items[offset:], offset, &wg)
 
 	wg.Wait()
-	runtime.SetDefaultGOMAXPROCS()
+	runtime.GOMAXPROCS(stdCores)
 }
