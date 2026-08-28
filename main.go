@@ -11,6 +11,8 @@ import (
 	"math"
 	"math/rand"
 	"os"
+	"strconv"
+	"strings"
 
 	"github.com/tuneinsight/lattigo/v6/circuits/ckks/bootstrapping"
 	"github.com/tuneinsight/lattigo/v6/circuits/ckks/comparison"
@@ -24,31 +26,123 @@ import (
 )
 
 func main() {
+	//-----------------
+	//standard init
+	//-----------------
+	var isSeeded bool = false
+	var isPlotted bool = false
+	var isFiled bool = false
+	var isCleanedUp bool = false
+
+	var err error
 
 	var logger *slog.Logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
-	var seed int64 = 22
-	randomizer := rand.New(rand.NewSource(seed))
-	trainCores := 8
+	var seed int64
+	randomizer := rand.New(rand.NewSource(rand.Int63()))
+	trainCores := 1
 	encCores := 1 //1 for deterministic purposes
 
 	resPath := "C:/GitHub/Neural-Gas-CKKS/files/"
-	resFile := "cleanup.txt"
+	resFile := "default.txt"
 
-	imageNumber := 6
+	imageNumber := 0 //prefix for plots
 
 	epochs := 10
 	scaleBits := 10 // ~3 decimal places precision
+
+	logScalingFactor := 45
+	logAccuracy := 10 // accuracy bits additional
+	level := 10
+
+	sampleCount := 40
+	prototypeCount := 10
+
+	//-----------------
+	//process input
+	//-----------------
+
+	for i, arg := range os.Args {
+		switch arg[0] {
+		case '-':
+			switch strings.ToLower(arg[1:]) {
+			case "help", "h", "?":
+				printHelpInfo(resPath, level, logScalingFactor, logAccuracy)
+			case "plot":
+				imageNumber, err = strconv.Atoi(os.Args[i+1])
+				if err != nil {
+					panic(err)
+				}
+				isPlotted = true
+			case "cores", "c":
+				trainCores, err = strconv.Atoi(os.Args[i+1])
+				if err != nil {
+					panic(err)
+				}
+			case "seed":
+				seed, err = strconv.ParseInt(os.Args[i+1], 10, 64)
+				if err != nil {
+					panic(err)
+				}
+				randomizer = rand.New(rand.NewSource(seed))
+				isSeeded = true
+			case "prototypes", "p":
+				prototypeCount, err = strconv.Atoi(os.Args[i+1])
+				if err != nil {
+					panic(err)
+				}
+			case "samples", "s":
+				sampleCount, err = strconv.Atoi(os.Args[i+1])
+				if err != nil {
+					panic(err)
+				}
+			case "epochs", "e":
+				epochs, err = strconv.Atoi(os.Args[i+1])
+				if err != nil {
+					panic(err)
+				}
+			case "file", "f":
+				resFile = os.Args[i+1]
+				isFiled = true
+			case "path":
+				resPath = os.Args[i+1]
+			case "levels", "l":
+				level, err = strconv.Atoi(os.Args[i+1])
+				if err != nil {
+					panic(err)
+				}
+			case "logscale", "sc":
+				logScalingFactor, err = strconv.Atoi(os.Args[i+1])
+				if err != nil {
+					panic(err)
+				}
+			case "logaccuracy", "ac":
+				logAccuracy, err = strconv.Atoi(os.Args[i+1])
+				if err != nil {
+					panic(err)
+				}
+			case "clean":
+				scaleBits, err = strconv.Atoi(os.Args[i+1])
+				if err != nil {
+					panic(err)
+				}
+				isCleanedUp = true
+			default:
+			}
+		case '?':
+			printHelpInfo(resPath, level, logScalingFactor, logAccuracy)
+
+		default:
+		}
+	}
+
+	//-------------------------------------------------- true main ----------------------------------------------
 
 	//------------------
 	// Initialization
 	//------------------
 
-	var err error
 	var params ckks.Parameters
 
-	logScalingFactor := 45
-	logAccuracy := 10
-	level := 10
 	logQ := util.FillSlice(logScalingFactor, level+1)
 	logQ[0] += logAccuracy
 
@@ -84,28 +178,40 @@ func main() {
 		panic(err)
 	}
 
-	// kgen := rlwe.NewKeyGenerator(params) // Key Generator
-	kgen := rlwe.NewTestKeyGeneratorWithKeyedPRNG(params, prng) // deterministic Key Generator
-	sk := kgen.GenSecretKeyNew()                                // Secret Key
-	ecd := ckks.NewEncoder(params)                              // Encoder
-	// enc := rlwe.NewEncryptor(params, sk)     // Encryptor
-	enc := rlwe.NewTestEncryptorWithKeyedPRNG(params, sk, prng) // deterministic Encryptor
-	dec := rlwe.NewDecryptor(params, sk)                        // Decryptor
-	rlk := kgen.GenRelinearizationKeyNew(sk)                    // Relinearization Key
-	evk := rlwe.NewMemEvaluationKeySet(rlk)                     // Evaluation Key Set with the Relinearization Key
-	eval := ckks.NewEvaluator(params, evk)                      // Evaluator
+	var kgen *rlwe.KeyGenerator
+	var enc *rlwe.Encryptor
+	if isSeeded {
+		kgen = rlwe.NewTestKeyGeneratorWithKeyedPRNG(params, prng) // deterministic Key Generator
+	} else {
+		kgen = rlwe.NewKeyGenerator(params) // Key Generator
+	}
+	sk := kgen.GenSecretKeyNew()   // Secret Key
+	ecd := ckks.NewEncoder(params) // Encoder
+	if isSeeded {
+		enc = rlwe.NewTestEncryptorWithKeyedPRNG(params, sk, prng) // deterministic Encryptor
+	} else {
+		enc = rlwe.NewEncryptor(params, sk) // Encryptor
+	}
+	dec := rlwe.NewDecryptor(params, sk)     // Decryptor
+	rlk := kgen.GenRelinearizationKeyNew(sk) // Relinearization Key
+	evk := rlwe.NewMemEvaluationKeySet(rlk)  // Evaluation Key Set with the Relinearization Key
+	eval := ckks.NewEvaluator(params, evk)   // Evaluator
 
 	slots := 1 << params.LogN()
 	batches := 1
 	terms := slots / batches //terms per batch
 	eval = eval.WithKey(rlwe.NewMemEvaluationKeySet(rlk, kgen.GenGaloisKeysNew(params.GaloisElementsForInnerSum(batches, terms), sk)...))
 
-	logger.Info("Generating bootstrapping keys...")
+	if logger != nil {
+		logger.Info("Generating bootstrapping keys...")
+	}
 	btpk, _, err := btpParams.GenEvaluationKeys(sk)
 	if err != nil {
 		panic(err)
 	}
-	logger.Info("Bootstrapping keys generated.")
+	if logger != nil {
+		logger.Info("Bootstrapping keys generated.")
+	}
 
 	var bootstrapper *bootstrapping.Evaluator
 	if bootstrapper, err = bootstrapping.NewEvaluator(btpParams, btpk); err != nil {
@@ -113,46 +219,15 @@ func main() {
 	}
 	cmp := comparison.NewEvaluator(params, minimax.NewEvaluator(params, eval, bootstrapper))
 
-	test.Decryptor = dec
+	test.Decryptor = dec //TODO remove
 
 	//------------------
 	// Samples init
 	//------------------
 
-	// var factor float64 = 1
-	// var imagePath string = ".gitignore/imageSamples/walking_man.jpg"
-
-	// sampleSetRed := input.ImageToSampleSetReverse(imagePath, func(x, y int, img *image.Image) bool {
-	// 	r, _, _, a := (*img).At(x, y).RGBA()
-	// 	return rand.Float64() > factor*float64(r)/float64(0xffff)*float64(a)/float64(0xffff)
-	// })
-	// sampleSetGreen := input.ImageToSampleSetReverse(imagePath, func(x, y int, img *image.Image) bool {
-	// 	_, g, _, a := (*img).At(x, y).RGBA()
-	// 	return rand.Float64() > factor*float64(g)/float64(0xffff)*float64(a)/float64(0xffff)
-	// })
-	// sampleSetBlue := input.ImageToSampleSetReverse(imagePath, func(x, y int, img *image.Image) bool {
-	// 	_, _, b, a := (*img).At(x, y).RGBA()
-	// 	return rand.Float64() > factor*float64(b)/float64(0xffff)*float64(a)/float64(0xffff)
-	// })
-	// sampleSetAvg := input.ImageToSampleSetReverse(imagePath, func(x, y int, img *image.Image) bool {
-	// 	r, g, b, a := (*img).At(x, y).RGBA()
-	// 	r = uint32(float64(r+g+b) / 3.0)
-	// 	return rand.Float64() > factor*float64(b)/float64(0xffff)*float64(a)/float64(0xffff)
-	// })
-
-	// plotting.Plot2D(sampleSetRed, "red filter", ".gitignore/imagePlots/sample41")
-	// println("sample generated")
-	// plotting.Plot2D(sampleSetGreen, "green filter", ".gitignore/imagePlots/sample42")
-	// println("sample generated")
-	// plotting.Plot2D(sampleSetBlue, "blue filter", ".gitignore/imagePlots/sample43")
-	// println("sample generated")
-	// plotting.Plot2D(sampleSetAvg, "average filter", ".gitignore/imagePlots/sample44")
-	// println("sample generated")
-
-	sampleCount := 40
 	var dataset []*mat.VecDense = make([]*mat.VecDense, sampleCount)
 
-	fillDataset(dataset, randomizer) // deterministic tested
+	fillDataset(dataset, randomizer)
 
 	plotting.Plot2D(dataset, fmt.Sprintf("circle of %d prototypes", sampleCount), fmt.Sprintf(".gitignore/plots/%dsample", imageNumber))
 
@@ -161,7 +236,7 @@ func main() {
 	//------------------
 
 	var encSamples []*rlwe.Ciphertext
-	if encSamples, err = encrypt.EncSamplesThreaded(dataset, ecd, enc, &params, encCores, logger); err != nil { //deterministic for maxCores == 1 -> not for maxCores != 1 tested
+	if encSamples, err = encrypt.EncSamplesThreaded(dataset, ecd, enc, &params, encCores, logger); err != nil { //deterministic for maxCores == 1 -> not for maxCores != 1
 		panic(err)
 	}
 
@@ -171,23 +246,6 @@ func main() {
 
 	// an identity cipher that needs to be initialized before training (needed in sorting for invStep)
 	encrypt.IdentityCipherCreateInstance(encSamples[0].Slots(), ecd, enc, &params)
-
-	// n := len(cmp.MinimaxCompositeSignPolynomial)
-
-	// stepPoly := make([]bignum.Polynomial, n)
-
-	// for i := 0; i < n; i++ {
-	// 	stepPoly[i] = cmp.MinimaxCompositeSignPolynomial[i]
-	// 	// fmt.Fprintf(os.Stdin, "", nil, " ", stepPoly[i].Basis)
-
-	// 	for _, coeff := range stepPoly[i].Coeffs {
-	// 		co, _ := coeff.Real().Float64()
-	// 		fmt.Printf(" %f", co)
-	// 	}
-	// 	fmt.Println()
-	// }
-
-	prototypeCount := 10
 
 	paramsNG := neuralgas.Params{
 		LearningRate_initial:     0.5,
@@ -204,7 +262,6 @@ func main() {
 		Cmp:             cmp,
 		Bootstrapper:    bootstrapper,
 		Dec:             dec,
-		Mod1Evaluator:   nil,
 		LogCleanUpScale: 10,
 	}
 
@@ -221,9 +278,20 @@ func main() {
 		panic(err)
 	}
 
-	err = ng.TrainPlots(uint(epochs), scaleBits, uint(trainCores), fmt.Sprintf(".gitignore/plots/%dimg_", imageNumber), []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 20, 30, 40})
-	if err != nil {
-		panic(err)
+	if isPlotted {
+		err = ng.TrainPlots(uint(epochs), scaleBits, uint(trainCores), fmt.Sprintf(".gitignore/plots/%dimg_", imageNumber), []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 20, 30, 40})
+		if err != nil {
+			panic(err)
+		}
+	} else {
+		err = ng.Train(uint(epochs), scaleBits, uint(trainCores))
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	if !isFiled {
+		return
 	}
 
 	// open / create file and write down the contents
@@ -243,8 +311,24 @@ func main() {
 		panic(err)
 	}
 
+	var s string
 	for i := range arrMat {
-		file.WriteString(fmt.Sprintf("%.17f, %.17f\n", arrMat[i].RawVector().Data[0], arrMat[i].RawVector().Data[1]))
+		s = ""
+		sampleDims := 0
+
+		if len(dataset) > 0 {
+			sampleDims = len(dataset[0].RawVector().Data)
+		}
+
+		for dim := range sampleDims {
+			s += fmt.Sprintf("%.17f", arrMat[i].RawVector().Data[dim])
+			if dim < sampleDims-1 {
+				s += ", "
+			} else {
+				s += "\n"
+			}
+		}
+		file.WriteString(s)
 	}
 
 }
@@ -258,4 +342,24 @@ func fillDataset(dataset []*mat.VecDense, RNG *rand.Rand) {
 		// dataset[i] = mat.NewVecDense(2, []float64{0.5*rng + 0.2, 0.2*rand.Float64() + 0.4}) // rectangle area
 	}
 
+}
+
+func printHelpInfo(path string, maxLevel, logScalingFactor, logAccuracy int) {
+	println("commands:")
+	println("--- learning ---")
+	println("-cores -c <int>\t...number of threads created. Default: 1")
+	println("-seed <int64>\t...seed for randomizer. Default: random")
+	println("-samples -s <int>\t...generates random sample set of passed amount of samples. Default: use image")
+	println("-prototypes -p <int>\t...amount of prototypes created. Default: 500")
+	println("-epochs -e <int>\t...amount of epochs used for training.")
+	println("--- encryption ---")
+	println("-logscale -sc <int>\t...log of scaling factor for encryption. Default: ", logScalingFactor)
+	println("-levels -l <int>\t...max level of ciphertext. Default: ", maxLevel)
+	println("-logaccuracy -ac <int>\t...additional accuracy to the scaling factor. Default: ", logAccuracy)
+	println("-clean <int>\f...bits of precision safed before cleaning the ciphertext. Default: no cleaning")
+	println("--- logging ---")
+	println("-plot <int>\t...plots the results with given prefix. Default: no plotting")
+	println("-file -f <string>\t...file to store decrypted prototype results. Default: no logging of results")
+	println("-path <string>\t...path to store the file created with -file in. Default: ", path)
+	println("-help -h -? ?\t...prints this.")
 }

@@ -7,7 +7,6 @@ import (
 
 	"github.com/tuneinsight/lattigo/v6/circuits/ckks/bootstrapping"
 	"github.com/tuneinsight/lattigo/v6/circuits/ckks/comparison"
-	"github.com/tuneinsight/lattigo/v6/circuits/ckks/mod1"
 	"github.com/tuneinsight/lattigo/v6/core/rlwe"
 	"github.com/tuneinsight/lattigo/v6/schemes/ckks"
 )
@@ -225,51 +224,4 @@ The smooth minimum of the [rlwe.Ciphertext]s x0, x1
 */
 func min(x0, x1, step, invStep *rlwe.Ciphertext, eval *ckks.Evaluator) (smoothMin *rlwe.Ciphertext, err error) {
 	return max(x0, x1, invStep, step, eval)
-}
-
-/*
-Scales up the input by bitScale bits,
-cleans up the precision and scales the input down again.
-
-reduces the ciphertext level by 2.
-*/
-func CleanUpMod1(ct *rlwe.Ciphertext, bitScale int, eval *ckks.Evaluator, mod1eval *mod1.Evaluator) (err error) {
-	err = eval.MulRelin(ct, 1<<bitScale, ct)
-	if err != nil {
-		return fmt.Errorf("Clean up failed: %s", err.Error())
-	}
-	err = eval.Rescale(ct, ct)
-	if err != nil {
-		return fmt.Errorf("Clean up failed: %s", err.Error())
-	}
-
-	mod, err := mod1eval.EvaluateNew(ct)
-	if err != nil {
-		return fmt.Errorf("Clean up failed: %s", err.Error())
-	}
-	err = eval.Sub(ct, mod, ct)
-	if err != nil {
-		return fmt.Errorf("Clean up failed: %s", err.Error())
-	}
-
-	err = eval.MulRelin(ct, float64(1)/float64(int(1)<<bitScale), ct)
-	if err != nil {
-		return fmt.Errorf("Clean up failed: %s", err.Error())
-	}
-	err = eval.Rescale(ct, ct)
-	if err != nil {
-		return fmt.Errorf("Clean up failed: %s", err.Error())
-	}
-	return
-}
-
-/*
-Scales up the input by bitScale bits,
-cleans up the precision and scales down the input again.
-
-returns a ciphertext with reduced level by 2.
-*/
-func CleanUpMod1New(ct *rlwe.Ciphertext, bitScale int, eval *ckks.Evaluator, mod1eval *mod1.Evaluator) (res *rlwe.Ciphertext, err error) {
-	ct = ckks.NewCiphertext(*eval.GetParameters(), ct.Degree(), ct.Level())
-	return ct, CleanUpMod1(ct, bitScale, eval, mod1eval)
 }

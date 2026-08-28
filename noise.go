@@ -17,6 +17,10 @@ func main() {
 	var messageSlots int = 16
 	var maxLevel int = 10
 
+	println("used message bound per slot: ", messageSlotBound)
+	println("message slots: ", messageSlots)
+	println("ciphertext maxLevel: ")
+
 	polys := make([][]float64, len(compPoly))
 	for i := range compPoly {
 		polys[i], err = parsePoly(compPoly[i])
@@ -34,40 +38,44 @@ func main() {
 		// println()
 	}
 
+	print("sum of absolute values for all polynomials: ")
 	util.PrintSlice(AbsSums, func(in float64, idx int) float64 { return in })
+	println()
+
+	print("product of sums (to this index): ")
 	util.PrintSlice(AbsSums, func(in float64, idx int) float64 {
 		return util.ProdElems(AbsSums[:idx+1])
 	})
+	println()
 
+	print("polynomial degrees: ")
 	util.PrintSlice(AbsSums, func(_ float64, idx int) int { return len(polys[idx]) - 1 })
+	println()
 
 	// ||m||^{can}_\infty
 	canInfNormBound, err := noise.CanInfNormUpperBound(util.FillSlice(messageSlotBound, messageSlots))
 	if err != nil {
 		panic(err)
 	}
-	fmt.Printf("CAN INF NORM bound: %f\n", canInfNormBound)
+
+	fmt.Printf("canonical message bound ||m||^{can}_\\infty: %f\n", canInfNormBound)
 
 	//
 	var Mf_composite float64
 	Mf_composite = canInfNormBound
-	Mf_composite *= util.ProdElems(AbsSums)
-
-	fmt.Printf("Step composite Mf bound: %f\n", Mf_composite)
-	fmt.Printf("Step composite message bound: %f\n", Mf_composite)
 
 	var errorSlotBound float64 = 0.000001 //TODO use step error slot bound
 	var beta0 float64 = errorSlotBound / canInfNormBound
 	var betaD float64 = beta0
 	var betaAsterisk float64 = noise.BetaAsteriskUpperBound(maxLevel)
-	println("beta0 of loop: ", 0, " is ", beta0)
+	// println("beta0 of loop: ", 0, " is ", beta0)
 	for i := range polys {
 		betaD = noise.BetaDUpperBound(len(polys[i]), betaD, betaAsterisk)
-		println("betaD of loop: ", i+1, " is ", betaD)
+		// println("betaD of loop: ", i+1, " is ", betaD)
 	}
 
-	fmt.Printf("Step composite betaD bound: %f\n", betaD)
-	fmt.Printf("Step composite error bound: %f\n", Mf_composite*betaD)
+	// fmt.Printf("Step composite betaD bound: %f\n", betaD)
+	fmt.Printf("recursive: Step composite error bound: %f\n", Mf_composite*betaD)
 
 	println("-------------------------------------------")
 
@@ -78,7 +86,7 @@ func main() {
 		if err != nil {
 			panic(err)
 		}
-		fmt.Printf("In loop %d msgB: %.15f, errB: %.15f\n", i+1, newMessageBound, newErrorBound)
+		// fmt.Printf("In loop %d msgB: %.15f, errB: %.15f\n", i+1, newMessageBound, newErrorBound)
 	}
 
 	// newMsgBound, newErrBound, err := noise.UpperBoundEvalPoly(1, 0.005, 7, poly)
@@ -115,8 +123,8 @@ func main() {
 
 	println()
 
-	println("Mf: ", canInfNormBound*nuFactor)
-	println("err bound: ", (beta0*beta0Factor+betaAsterisk*float64(betaAsteriskFactor))*canInfNormBound*nuFactor)
+	println("composite Mf: ", canInfNormBound*nuFactor)
+	println("composite err bound: ", (beta0*beta0Factor+betaAsterisk*float64(betaAsteriskFactor))*canInfNormBound*nuFactor)
 
 }
 
