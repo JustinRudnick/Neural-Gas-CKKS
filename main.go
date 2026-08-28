@@ -37,7 +37,7 @@ func main() {
 	var isCleanedUp bool = false
 	var useRandomSampleSet bool = false
 
-	var samplePath string = "C:/GitHub/Neural-Gas-CKKS/.gitignore/imageSamples/"
+	var samplePath string = "./.gitignore/imageSamples/"
 	var sampleFile string = "man.jpg"
 
 	var err error
