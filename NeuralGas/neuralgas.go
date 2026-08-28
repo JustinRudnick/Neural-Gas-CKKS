@@ -9,8 +9,6 @@ import (
 	"log/slog"
 	"math"
 	"math/rand"
-	"slices"
-	"sort"
 	"sync"
 	"time"
 
@@ -33,8 +31,8 @@ type EncParams struct {
 	Mod1Evaluator   *mod1.Evaluator
 	LogCleanUpScale int //used to clean up prototypes to preserve better precision if chosen smaller than precision
 
-	isCleanedUp   bool
-	cleanBitScale int
+	IsCleanedUp   bool
+	CleanBitScale int
 
 	Dec *rlwe.Decryptor //[optional] - needed for TrainPlots()
 }
@@ -255,7 +253,7 @@ func (ng *NeuralGas) Train(epochs uint, maxCores uint) (err error) {
 	var eval *ckks.Evaluator
 	var mod1eval *mod1.Evaluator
 
-	if ng.EncParams.isCleanedUp {
+	if ng.EncParams.IsCleanedUp {
 		bootstrapper = ng.EncParams.Bootstrapper
 		eval = ng.EncParams.Eval
 		mod1eval := ng.EncParams.Mod1Evaluator
@@ -282,7 +280,7 @@ func (ng *NeuralGas) Train(epochs uint, maxCores uint) (err error) {
 			}
 
 			//clean up prototypes
-			if ng.EncParams.isCleanedUp {
+			if ng.EncParams.IsCleanedUp {
 
 				for i, prototype := range rankedPrototypes {
 					prototype.Prototype, err = encrypt.AssureLevel(prototype.Prototype, bootstrapper, func(ctLevel int) bool { return ctLevel < 2 })
@@ -290,7 +288,7 @@ func (ng *NeuralGas) Train(epochs uint, maxCores uint) (err error) {
 						return fmt.Errorf("Level assurance failed: %s", err.Error())
 					}
 
-					err = encrypt.CleanUpMod1(prototype.Prototype, ng.EncParams.cleanBitScale, eval, mod1eval)
+					err = encrypt.CleanUpMod1(prototype.Prototype, ng.EncParams.CleanBitScale, eval, mod1eval)
 					if err != nil {
 						return fmt.Errorf("Clean up could not be evaluated: %s", err.Error())
 					}
@@ -315,7 +313,7 @@ func (ng *NeuralGas) Train(epochs uint, maxCores uint) (err error) {
 
 }
 
-func (ng *NeuralGas) TrainPlots(epochs uint, scaleUpBits int, maxCores uint, filenames string, plotEpochs []int) (err error) {
+func (ng *NeuralGas) TrainPlots(epochs, maxCores uint, filenames string, plotEpochs []int) (err error) {
 	initialT := time.Now()
 	if ng.isLogged {
 		ng.logger.Info(fmt.Sprintf("Begin training for %d epoch(s) using %d threads.", epochs, maxCores))
@@ -329,7 +327,7 @@ func (ng *NeuralGas) TrainPlots(epochs uint, scaleUpBits int, maxCores uint, fil
 	var eval *ckks.Evaluator
 	var mod1Eval *mod1.Evaluator
 
-	if ng.EncParams.isCleanedUp {
+	if ng.EncParams.IsCleanedUp {
 		bootstrapper = ng.EncParams.Bootstrapper
 		eval = ng.EncParams.Eval
 		mod1eval := ng.EncParams.Mod1Evaluator
@@ -340,7 +338,7 @@ func (ng *NeuralGas) TrainPlots(epochs uint, scaleUpBits int, maxCores uint, fil
 
 	var mod1Literal mod1.ParametersLiteral
 
-	if ng.EncParams.isCleanedUp {
+	if ng.EncParams.IsCleanedUp {
 		originalInterval := 2 //TODO get correct interval
 
 		mod1Literal = mod1.ParametersLiteral{
@@ -364,21 +362,16 @@ func (ng *NeuralGas) TrainPlots(epochs uint, scaleUpBits int, maxCores uint, fil
 		}
 	}
 
-	uniqueEpochs := slices.Compact(plotEpochs)
-	sort.Slice(uniqueEpochs, func(i, j int) bool { return uniqueEpochs[i] < uniqueEpochs[j] })
-	nextPlotEpochPtr := 0
-
 	iteration := 0
 	totalIterations := int(epochs) * len(ng.samples)
 	prototypeCount := len(ng.prototypes)
 
-	if len(uniqueEpochs) > nextPlotEpochPtr && uniqueEpochs[nextPlotEpochPtr] == 0 {
+	if util.In(plotEpochs, 0) >= 0 {
 		msgs, err := encrypt.DecSamples(ng.Prototypes(), ecd, dec, logger)
 		if err != nil {
 			return fmt.Errorf("Decryption of samples failed: %s", err.Error())
 		}
 		plotting.Plot2D(msgs, fmt.Sprintf("%d epoch(s), %d prototypes", 0, prototypeCount), fmt.Sprintf("%s%d", filenames, 0))
-		nextPlotEpochPtr++
 	}
 
 	for epoch := range epochs {
@@ -396,7 +389,7 @@ func (ng *NeuralGas) TrainPlots(epochs uint, scaleUpBits int, maxCores uint, fil
 			}
 
 			//clean up prototypes
-			if ng.EncParams.isCleanedUp {
+			if ng.EncParams.IsCleanedUp {
 
 				for _, prototype := range rankedPrototypes {
 					prototype.Prototype, err = encrypt.AssureLevel(prototype.Prototype, bootstrapper, func(ctLevel int) bool { return ctLevel < 2 })
@@ -410,7 +403,7 @@ func (ng *NeuralGas) TrainPlots(epochs uint, scaleUpBits int, maxCores uint, fil
 					mod1Params, err := mod1.NewParametersFromLiteral(*ng.EncParams.Params, mod1Literal)
 					mod1Eval = mod1.NewEvaluator(eval, polynomial.NewEvaluator(*ng.EncParams.Params, eval), mod1Params)
 
-					err = encrypt.CleanUpMod1(prototype.Prototype, scaleUpBits, eval, mod1Eval)
+					err = encrypt.CleanUpMod1(prototype.Prototype, ng.EncParams.CleanBitScale, eval, mod1Eval)
 					if err != nil {
 						return fmt.Errorf("Clean up could not be evaluated: %s", err.Error())
 					}
@@ -496,7 +489,7 @@ func (ng *NeuralGas) TrainPlots(epochs uint, scaleUpBits int, maxCores uint, fil
 		// 	})
 
 		//plotting
-		if uniqueEpochs[nextPlotEpochPtr] == int(epoch)+1 && len(uniqueEpochs) > nextPlotEpochPtr {
+		if util.In(plotEpochs, int(epoch)+1) >= 0 {
 			msgs, err := encrypt.DecSamples(ng.Prototypes(), ecd, dec, logger)
 			if err != nil {
 				return fmt.Errorf("Decryption of samples failed: %s", err.Error())

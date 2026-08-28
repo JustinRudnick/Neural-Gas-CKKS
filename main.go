@@ -2,11 +2,13 @@ package main
 
 import (
 	encrypt "NeuralGasCKKS/Encrypt"
+	input "NeuralGasCKKS/Input"
 	neuralgas "NeuralGasCKKS/NeuralGas"
 	plotting "NeuralGasCKKS/Plotting"
 	test "NeuralGasCKKS/Test"
 	util "NeuralGasCKKS/Util"
 	"fmt"
+	"image"
 	"log/slog"
 	"math"
 	"math/rand"
@@ -33,6 +35,10 @@ func main() {
 	var isPlotted bool = false
 	var isFiled bool = false
 	var isCleanedUp bool = false
+	var useRandomSampleSet bool = false
+
+	var samplePath string = "C:/GitHub/Neural-Gas-CKKS/.gitignore/imageSamples/"
+	var sampleFile string = "man.jpg"
 
 	var err error
 
@@ -42,7 +48,7 @@ func main() {
 	trainCores := 1
 	encCores := 1 //1 for deterministic purposes
 
-	resPath := "C:/GitHub/Neural-Gas-CKKS/files/"
+	resPath := "./" //"C:/GitHub/Neural-Gas-CKKS/files/"
 	resFile := "default.txt"
 
 	imageNumber := 0 //prefix for plots
@@ -67,6 +73,7 @@ func main() {
 			switch strings.ToLower(arg[1:]) {
 			case "help", "h", "?":
 				printHelpInfo(resPath, level, logScalingFactor, logAccuracy)
+				return
 			case "plot":
 				imageNumber, err = strconv.Atoi(os.Args[i+1])
 				if err != nil {
@@ -95,6 +102,7 @@ func main() {
 				if err != nil {
 					panic(err)
 				}
+				useRandomSampleSet = true
 			case "epochs", "e":
 				epochs, err = strconv.Atoi(os.Args[i+1])
 				if err != nil {
@@ -130,6 +138,7 @@ func main() {
 			}
 		case '?':
 			printHelpInfo(resPath, level, logScalingFactor, logAccuracy)
+			return
 
 		default:
 		}
@@ -225,11 +234,21 @@ func main() {
 	// Samples init
 	//------------------
 
-	var dataset []*mat.VecDense = make([]*mat.VecDense, sampleCount)
+	var dataset []*mat.VecDense
 
-	fillDataset(dataset, randomizer)
+	if useRandomSampleSet {
+		dataset = make([]*mat.VecDense, sampleCount)
+		fillDataset(dataset, randomizer)
+	} else {
+		dataset = input.ImageToSampleSetReverse(fmt.Sprintf("%s%s", samplePath, sampleFile), func(x, y int, img *image.Image) bool {
+			r, _, _, a := (*img).At(x, y).RGBA()
+			// r = (r + g + b) / 3
+			value := float64(r) * float64(a) / float64(0xffff)
+			return (x*y)%2 == 1 && value < 0x6000
+		})
+	}
 
-	plotting.Plot2D(dataset, fmt.Sprintf("circle of %d prototypes", sampleCount), fmt.Sprintf(".gitignore/plots/%dsample", imageNumber))
+	plotting.Plot2D(dataset, fmt.Sprintf("sample set of %d samples", sampleCount), fmt.Sprintf(".gitignore/plots/%dsample", imageNumber))
 
 	//------------------
 	// Encoding & Encryption
@@ -263,6 +282,9 @@ func main() {
 		Bootstrapper:    bootstrapper,
 		Dec:             dec,
 		LogCleanUpScale: 10,
+
+		IsCleanedUp:   isCleanedUp,
+		CleanBitScale: scaleBits,
 	}
 
 	ng, err := neuralgas.NewNorm(
@@ -279,12 +301,17 @@ func main() {
 	}
 
 	if isPlotted {
-		err = ng.TrainPlots(uint(epochs), scaleBits, uint(trainCores), fmt.Sprintf(".gitignore/plots/%dimg_", imageNumber), []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 20, 30, 40})
+		plotEpochs := make([]int, 20)
+		for i := range 10 {
+			plotEpochs[2*i] = epochs / (i + 1)
+			plotEpochs[2*i+1] = int(math.Round(float64(i+1) / float64(10) * float64(epochs)))
+		}
+		err = ng.TrainPlots(uint(epochs), uint(trainCores), fmt.Sprintf(".gitignore/plots/%dimg_", imageNumber), append(plotEpochs, 0))
 		if err != nil {
 			panic(err)
 		}
 	} else {
-		err = ng.Train(uint(epochs), scaleBits, uint(trainCores))
+		err = ng.Train(uint(epochs), uint(trainCores))
 		if err != nil {
 			panic(err)
 		}
@@ -347,19 +374,19 @@ func fillDataset(dataset []*mat.VecDense, RNG *rand.Rand) {
 func printHelpInfo(path string, maxLevel, logScalingFactor, logAccuracy int) {
 	println("commands:")
 	println("--- learning ---")
-	println("-cores -c <int>\t...number of threads created. Default: 1")
-	println("-seed <int64>\t...seed for randomizer. Default: random")
+	println("-cores -c <int>\t\t...number of threads created. Default: 1")
+	println("-seed <int64>\t\t...seed for randomizer. Default: random")
 	println("-samples -s <int>\t...generates random sample set of passed amount of samples. Default: use image")
 	println("-prototypes -p <int>\t...amount of prototypes created. Default: 500")
 	println("-epochs -e <int>\t...amount of epochs used for training.")
-	println("--- encryption ---")
+	println("\n--- encryption ---")
 	println("-logscale -sc <int>\t...log of scaling factor for encryption. Default: ", logScalingFactor)
 	println("-levels -l <int>\t...max level of ciphertext. Default: ", maxLevel)
 	println("-logaccuracy -ac <int>\t...additional accuracy to the scaling factor. Default: ", logAccuracy)
-	println("-clean <int>\f...bits of precision safed before cleaning the ciphertext. Default: no cleaning")
-	println("--- logging ---")
-	println("-plot <int>\t...plots the results with given prefix. Default: no plotting")
+	println("-clean <int>\t\t...bits of precision safed before cleaning the ciphertext. Default: no cleaning")
+	println("\n--- logging ---")
+	println("-plot <int>\t\t...plots the results with given prefix. Default: no plotting")
 	println("-file -f <string>\t...file to store decrypted prototype results. Default: no logging of results")
-	println("-path <string>\t...path to store the file created with -file in. Default: ", path)
-	println("-help -h -? ?\t...prints this.")
+	println("-path <string>\t\t...path to store the file created with -file in. Default: ", path)
+	println("-help -h -? ?\t\t...prints this.")
 }
