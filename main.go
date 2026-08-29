@@ -38,7 +38,7 @@ func main() {
 	var useRandomSampleSet bool = false
 
 	var samplePath string = "./.gitignore/imageSamples/"
-	var sampleFile string = "man.jpg"
+	var sampleFile string = "man_small.jpg"
 
 	var err error
 
@@ -103,6 +103,10 @@ func main() {
 					panic(err)
 				}
 				useRandomSampleSet = true
+			case "sampleimg", "si":
+				sampleFile = os.Args[i+1]
+			case "samplepath", "sp":
+				samplePath = os.Args[i+1]
 			case "epochs", "e":
 				epochs, err = strconv.Atoi(os.Args[i+1])
 				if err != nil {
@@ -246,6 +250,7 @@ func main() {
 			value := float64(r) * float64(a) / float64(0xffff)
 			return (x*y)%2 == 1 && value < 0x6000
 		})
+		sampleCount = len(dataset)
 	}
 
 	plotting.Plot2D(dataset, fmt.Sprintf("sample set of %d samples", sampleCount), fmt.Sprintf(".gitignore/plots/%dsample", imageNumber))
@@ -371,12 +376,14 @@ func fillDataset(dataset []*mat.VecDense, RNG *rand.Rand) {
 
 }
 
-func printHelpInfo(path string, maxLevel, logScalingFactor, logAccuracy int) {
+func printHelpInfo(path, sampleimg, samplepath string, maxLevel, logScalingFactor, logAccuracy int) {
 	println("commands:")
 	println("--- learning ---")
 	println("-cores -c <int>\t\t...number of threads created. Default: 1")
 	println("-seed <int64>\t\t...seed for randomizer. Default: random")
 	println("-samples -s <int>\t...generates random sample set of passed amount of samples. Default: use image")
+	println("-sampleimg -si <string>\t...image to use as sample. Default: ", sampleimg)
+	println("-samplepath -sp <string>\t...path to sample image. Default: ", samplepath)
 	println("-prototypes -p <int>\t...amount of prototypes created. Default: 500")
 	println("-epochs -e <int>\t...amount of epochs used for training.")
 	println("\n--- encryption ---")
