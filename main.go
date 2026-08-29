@@ -72,7 +72,7 @@ func main() {
 		case '-':
 			switch strings.ToLower(arg[1:]) {
 			case "help", "h", "?":
-				printHelpInfo(resPath, level, logScalingFactor, logAccuracy)
+				printHelpInfo(resPath, sampleFile, samplePath, level, logScalingFactor, logAccuracy)
 				return
 			case "plot":
 				imageNumber, err = strconv.Atoi(os.Args[i+1])
@@ -141,7 +141,7 @@ func main() {
 			default:
 			}
 		case '?':
-			printHelpInfo(resPath, level, logScalingFactor, logAccuracy)
+			printHelpInfo(resPath, sampleFile, samplePath, level, logScalingFactor, logAccuracy)
 			return
 
 		default:
