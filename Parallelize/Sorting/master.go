@@ -19,9 +19,7 @@ type Master[T any] struct {
 amount of workers = maxCores - 1
 */
 func NewMaster[T any](slice []T, sections, maxCores int) (master *Master[T], err error) {
-	if sections > len(slice) {
-		return master, fmt.Errorf("cannot fragment a slice of length %d into %d sections (too many sections).", len(slice), sections)
-	}
+	sectionCount := int(math.Min(float64(sections), float64(len(slice))))
 
 	locks := make(map[*T]*sync.Mutex, sections)
 	master = &Master[T]{
@@ -34,10 +32,22 @@ func NewMaster[T any](slice []T, sections, maxCores int) (master *Master[T], err
 	var largeSectionSize, largeSectionCount int
 	var smallSectionSize, smallSectionCount int
 
-	smallSectionSize = len(slice) / sections
+	if sectionCount > 0 {
+		smallSectionSize = len(slice) / sectionCount
+	} else {
+		smallSectionSize = 0
+	}
 	largeSectionSize = smallSectionSize + 1
-	largeSectionCount = len(slice) % sections
-	smallSectionCount = (len(slice) - largeSectionCount*largeSectionSize) / smallSectionSize
+	if sectionCount > 0 {
+		largeSectionCount = len(slice) % sectionCount
+	} else {
+		largeSectionCount = sectionCount
+	}
+	if smallSectionSize > 0 {
+		smallSectionCount = (len(slice) - largeSectionCount*largeSectionSize) / smallSectionSize
+	} else {
+		smallSectionCount = 0
+	}
 
 	for i := range largeSectionCount {
 		master.locks[&slice[i*largeSectionSize]] = &sync.Mutex{}
@@ -94,15 +104,7 @@ func (m *Master[T]) BubbleSort(sortElem func(slice []T, i, j int) (err error), k
 	}
 
 	if m.workers.Size() <= 1 {
-		for i := range loops {
-			for j := len(m.slice) - 2; j >= i; j-- {
-				err = sortElem(m.slice, j, j+1)
-				if err != nil {
-					return err
-				}
-			}
-		}
-		return nil
+		return Bubblesort(m.slice, loops, sortElem)
 	}
 
 	var errchan = make(chan error, 1)
@@ -110,14 +112,8 @@ func (m *Master[T]) BubbleSort(sortElem func(slice []T, i, j int) (err error), k
 	startIdx := len(m.slice) - 2
 	runLen := len(m.slice) - 1
 	for range loops {
-		for { //wait, until worker is available
-			if m.workers.Size() > 0 {
-				worker, _ = m.workers.Pop()
-				break
-			}
-			// println("MASTER: waits for worker")
-			// time.Sleep(500)
-		}
+		worker = m.nextWorker()
+
 		m.wg.Add(1)
 		go worker.OneBubble(m.slice, m.GetLock(&m.slice[0]), startIdx, runLen, errchan, sortElem)
 
@@ -134,53 +130,82 @@ func (m *Master[T]) BubbleSort(sortElem func(slice []T, i, j int) (err error), k
 	return err
 }
 
-// TODO ai Version umsetzen
 func (m *Master[T]) BubbleSortPhased(sortElem func(slice []T, i, j int) (err error)) (err error) {
+	if m.workers.Size() <= 1 {
+		return Bubblesort(m.slice, len(m.slice), sortElem)
+	}
+
 	defaultCores := runtime.GOMAXPROCS(0)
 	defer runtime.GOMAXPROCS(defaultCores)
 	runtime.GOMAXPROCS(m.workers.Size())
 
-	for i := range len(m.slice) - 1 {
-		m.sortOnePhase(m.slice[i:], sortElem) //WARNING probably wrong: slice[i:] //should work
+	maxWorkers := m.workers.Size()
+	println("maxWorkers: ", maxWorkers)
+
+	for i := range len(m.slice) {
+		m.sortOnePhase(m.slice, i%2, maxWorkers, sortElem) //WARNING probably wrong: slice[i:] //should work
 		m.wg.Wait()
 	}
 
 	return nil
 }
 
-func (m *Master[T]) sortOnePhase(slice []T, sortElem func(slice []T, i, j int) (err error)) {
+func (m *Master[T]) sortOnePhase(slice []T, phase, maxWorkers int, sortElem func(slice []T, i, j int) (err error)) {
 	var slots int
 	var longRunSize, longRunCount int
 	var shortRunSize, shortRunCount int
-	if len(m.slice)%2 == 0 { //even phase
-		slots = len(slice) / 2
-	} else { //odd phase
-		slots = (len(slice) - 1) / 2
+
+	slots = (len(slice) - phase) / 2
+
+	print("sortOnePhase: ")
+	util.PrintSlice[T, string](slice, func(elem T, idx int) string { return fmt.Sprint(elem) })
+
+	//TODO how to compute them correctly?
+	if slots > 0 {
+		shortRunSize = slots / int(math.Min(float64(slots), float64(maxWorkers)))
+	} else {
+		shortRunSize = 0
+	}
+	longRunSize = shortRunSize + 1 //correct
+	if shortRunSize > 0 {
+		longRunCount = slots % shortRunSize //TODO len(slice) % (2 * slots) OR (len(slice)/2) % slots ?
+	} else {
+		longRunCount = slots
+	}
+	if shortRunSize > 0 {
+		shortRunCount = (slots - longRunCount*longRunSize) / shortRunSize
+	} else {
+		shortRunCount = 0
 	}
 
-	shortRunSize = slots / m.workers.Size()
-	longRunSize = shortRunSize + 1
-	longRunCount = len(slice) % slots
-	shortRunCount = (slots - longRunCount*longRunSize) / shortRunSize
+	fmt.Println("sortOnePhase:")
+	println("slots: ", slots)
+	fmt.Printf("\tlongRunCount: %d, longRunSize: %d\n", longRunCount, longRunSize)
+	fmt.Printf("\tshortRunCount: %d, shortRunSize: %d\n", shortRunCount, shortRunSize)
 
 	var errchan = make(chan error, 1)
 	var worker *Worker[T]
 	for i := range longRunCount {
 		worker = m.nextWorker()
 
-		startIdx := len(slice) - 2 - i*longRunSize
+		startIdx := len(slice) - 2 - 2*i*longRunSize - phase
 		m.wg.Add(1)
+		println("worker starts at idx: ", startIdx)
 		worker.OneSwapPhased(slice, startIdx, longRunSize, errchan, sortElem)
 	}
 
-	offset := longRunCount * longRunSize
+	offset := 2 * longRunCount * longRunSize
 	for i := range shortRunCount {
 		worker = m.nextWorker()
 
-		startIdx := len(slice) - 2 - offset - i*shortRunSize
+		startIdx := len(slice) - 2 - offset - 2*i*shortRunSize - phase
 		m.wg.Add(1)
+		println("worker starts at idx: ", startIdx)
 		worker.OneSwapPhased(slice, startIdx, shortRunSize, errchan, sortElem)
 	}
+
+	print("sortOnePhase end: ")
+	util.PrintSlice[T, string](slice, func(elem T, idx int) string { return fmt.Sprint(elem) })
 }
 
 func (m *Master[T]) nextWorker() (worker *Worker[T]) {
@@ -191,4 +216,20 @@ func (m *Master[T]) nextWorker() (worker *Worker[T]) {
 		}
 	}
 	return worker
+}
+
+/*
+common bubble sort
+*/
+func Bubblesort[T any](slice []T, k int, sortElem func(slice []T, i, j int) (err error)) (err error) {
+	loops := int(math.Min(float64(len(slice)-1), float64(k)))
+	for i := range loops {
+		for j := len(slice) - 2; j >= i; j-- {
+			err = sortElem(slice, j, j+1)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
