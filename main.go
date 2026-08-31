@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 
+	// "github.com/tuneinsight/ckks-noise-estimator/estimator"
 	"github.com/tuneinsight/lattigo/v6/circuits/ckks/bootstrapping"
 	"github.com/tuneinsight/lattigo/v6/circuits/ckks/comparison"
 	"github.com/tuneinsight/lattigo/v6/circuits/ckks/minimax"
@@ -209,6 +210,9 @@ func main() {
 	rlk := kgen.GenRelinearizationKeyNew(sk) // Relinearization Key
 	evk := rlwe.NewMemEvaluationKeySet(rlk)  // Evaluation Key Set with the Relinearization Key
 	eval := ckks.NewEvaluator(params, evk)   // Evaluator
+
+	// est := estimator.NewEstimator(params)
+	// estimator.NewEstimator(params)
 
 	slots := 1 << params.LogN()
 	batches := 1

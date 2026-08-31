@@ -3,7 +3,6 @@ module NeuralGasCKKS
 go 1.26.2
 
 require (
-	github.com/JustinRudnick/CKKS-Lattigo-Examples v0.0.0-20260605124205-4ae368728994
 	github.com/tuneinsight/lattigo/v6 v6.2.0
 	gonum.org/v1/gonum v0.17.0
 	gonum.org/v1/plot v0.15.2
@@ -23,6 +22,7 @@ require (
 	github.com/kr/text v0.2.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/stretchr/testify v1.10.0 // indirect
+	github.com/tuneinsight/ckks-noise-estimator v0.0.0-20250512121910-53dd2367a25a // indirect
 	golang.org/x/crypto v0.45.0 // indirect
 	golang.org/x/exp v0.0.0-20250506013437-ce4c2cf36ca6 // indirect
 	golang.org/x/image v0.25.0 // indirect
