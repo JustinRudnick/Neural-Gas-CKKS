@@ -1,9 +1,9 @@
 package sorting
 
 import (
+	util "NeuralGasCKKS/Util"
 	"fmt"
 	"sync"
-	util "threadedBubbleSort/Util"
 )
 
 type Worker[T any] struct {

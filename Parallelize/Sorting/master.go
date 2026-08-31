@@ -1,11 +1,11 @@
 package sorting
 
 import (
+	util "NeuralGasCKKS/Util"
 	"fmt"
 	"math"
 	"runtime"
 	"sync"
-	util "threadedBubbleSort/Util"
 )
 
 type Master[T any] struct {
