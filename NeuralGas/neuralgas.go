@@ -3,6 +3,7 @@ package neuralgas
 import (
 	encrypt "NeuralGasCKKS/Encrypt"
 	parallelize "NeuralGasCKKS/Parallelize"
+	sorting "NeuralGasCKKS/Parallelize/Sorting"
 	plotting "NeuralGasCKKS/Plotting"
 	util "NeuralGasCKKS/Util"
 	"fmt"
@@ -158,10 +159,23 @@ func (ng *NeuralGas) step(
 		It exists a sorting algoritm, that takes two input ciphertexts A[0] and A[1] and returns B[0] (smaller) and B[1] (bigger)
 		with same pt for the input and equivalent output according to Section 4.1 of the paper [https://ieeexplore.ieee.org/document/7937936] (#1 Src 9)
 	*/
-	err = encrypt.BubbleSort(rankedPrototypes, int(ng.optimizingPrototypeCount), ecd, enc, params, eval, cmp, bootstrapper, nil)
+	// err = encrypt.BubbleSort(rankedPrototypes, int(ng.optimizingPrototypeCount), ecd, enc, params, eval, cmp, bootstrapper, nil)
+	// if err != nil {
+	// 	return fmt.Errorf("Sorting failed: %s", err.Error())
+	// }
+
+	sections := 2 * maxCores
+	sorter, err := sorting.NewMaster[*util.RankedPrototype](rankedPrototypes, sections, maxCores)
 	if err != nil {
-		return fmt.Errorf("Sorting failed: %s", err.Error())
+		return fmt.Errorf("Could not create sorting algorithm: %w", err)
 	}
+
+	identity, err := encrypt.IdentityCipherInstance(rankedPrototypes[0].Prototype.Slots())
+	sortElem := func(slice []*util.RankedPrototype, i, j int) (err error) {
+		return encrypt.SortElements(slice[i], slice[j], identity, eval, cmp, bootstrapper)
+	}
+
+	sorter.BubbleSort(sortElem, ng.OptimizingPrototypeCount())
 
 	lambda := ng.InnerTemperature(iteration, maxIterations)
 	epsilon := ng.StepWidth(iteration, maxIterations)
