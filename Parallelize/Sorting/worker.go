@@ -1,9 +1,9 @@
 package sorting
 
 import (
-	util "NeuralGasCKKS/Util"
 	"fmt"
 	"sync"
+	util "threadedBubbleSort/Util"
 )
 
 type Worker[T any] struct {
@@ -57,6 +57,27 @@ func (w *Worker[T]) OneBubble(slice []T, lock *sync.Mutex, startIdx, runLen int,
 	}
 
 	// fmt.Printf("worker %p completed its task\n", w)
+	w.TaskDone()
+
+}
+
+/*
+runlen times: sorts elems (idx, idx + 1) and step 2 elements to the left
+*/
+func (w *Worker[T]) OneSwapPhased(slice []T, startIdx, runlen int, errchan chan error, sortElem func(slice []T, i, j int) (err error)) {
+	defer w.wg.Done()
+	var err error
+
+	idx := startIdx
+	for range runlen {
+		err = sortElem(slice, idx, idx+1)
+		select {
+		case errchan <- fmt.Errorf("OneSwapPhased failed: %w", err): // non blocking
+		default:
+		}
+		idx -= 2
+	}
+
 	w.TaskDone()
 
 }

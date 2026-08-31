@@ -1,12 +1,11 @@
 package sorting
 
 import (
-	util "NeuralGasCKKS/Util"
 	"fmt"
 	"math"
 	"runtime"
 	"sync"
-	"time"
+	util "threadedBubbleSort/Util"
 )
 
 type Master[T any] struct {
@@ -117,7 +116,7 @@ func (m *Master[T]) BubbleSort(sortElem func(slice []T, i, j int) (err error), k
 				break
 			}
 			// println("MASTER: waits for worker")
-			time.Sleep(1000)
+			// time.Sleep(500)
 		}
 		m.wg.Add(1)
 		go worker.OneBubble(m.slice, m.GetLock(&m.slice[0]), startIdx, runLen, errchan, sortElem)
@@ -133,4 +132,63 @@ func (m *Master[T]) BubbleSort(sortElem func(slice []T, i, j int) (err error), k
 	}
 
 	return err
+}
+
+// TODO ai Version umsetzen
+func (m *Master[T]) BubbleSortPhased(sortElem func(slice []T, i, j int) (err error)) (err error) {
+	defaultCores := runtime.GOMAXPROCS(0)
+	defer runtime.GOMAXPROCS(defaultCores)
+	runtime.GOMAXPROCS(m.workers.Size())
+
+	for i := range len(m.slice) - 1 {
+		m.sortOnePhase(m.slice[i:], sortElem) //WARNING probably wrong: slice[i:] //should work
+		m.wg.Wait()
+	}
+
+	return nil
+}
+
+func (m *Master[T]) sortOnePhase(slice []T, sortElem func(slice []T, i, j int) (err error)) {
+	var slots int
+	var longRunSize, longRunCount int
+	var shortRunSize, shortRunCount int
+	if len(m.slice)%2 == 0 { //even phase
+		slots = len(slice) / 2
+	} else { //odd phase
+		slots = (len(slice) - 1) / 2
+	}
+
+	shortRunSize = slots / m.workers.Size()
+	longRunSize = shortRunSize + 1
+	longRunCount = len(slice) % slots
+	shortRunCount = (slots - longRunCount*longRunSize) / shortRunSize
+
+	var errchan = make(chan error, 1)
+	var worker *Worker[T]
+	for i := range longRunCount {
+		worker = m.nextWorker()
+
+		startIdx := len(slice) - 2 - i*longRunSize
+		m.wg.Add(1)
+		worker.OneSwapPhased(slice, startIdx, longRunSize, errchan, sortElem)
+	}
+
+	offset := longRunCount * longRunSize
+	for i := range shortRunCount {
+		worker = m.nextWorker()
+
+		startIdx := len(slice) - 2 - offset - i*shortRunSize
+		m.wg.Add(1)
+		worker.OneSwapPhased(slice, startIdx, shortRunSize, errchan, sortElem)
+	}
+}
+
+func (m *Master[T]) nextWorker() (worker *Worker[T]) {
+	for { //wait, until worker is available
+		if m.workers.Size() > 0 {
+			worker, _ = m.workers.Pop()
+			break
+		}
+	}
+	return worker
 }
