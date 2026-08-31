@@ -140,7 +140,6 @@ func (m *Master[T]) BubbleSortPhased(sortElem func(slice []T, i, j int) (err err
 	runtime.GOMAXPROCS(m.workers.Size())
 
 	maxWorkers := m.workers.Size()
-	println("maxWorkers: ", maxWorkers)
 
 	for i := range len(m.slice) {
 		m.sortOnePhase(m.slice, i%2, maxWorkers, sortElem) //WARNING probably wrong: slice[i:] //should work
@@ -156,9 +155,6 @@ func (m *Master[T]) sortOnePhase(slice []T, phase, maxWorkers int, sortElem func
 	var shortRunSize, shortRunCount int
 
 	slots = (len(slice) - phase) / 2
-
-	print("sortOnePhase: ")
-	util.PrintSlice[T, string](slice, func(elem T, idx int) string { return fmt.Sprint(elem) })
 
 	//TODO how to compute them correctly?
 	if slots > 0 {
@@ -178,11 +174,6 @@ func (m *Master[T]) sortOnePhase(slice []T, phase, maxWorkers int, sortElem func
 		shortRunCount = 0
 	}
 
-	fmt.Println("sortOnePhase:")
-	println("slots: ", slots)
-	fmt.Printf("\tlongRunCount: %d, longRunSize: %d\n", longRunCount, longRunSize)
-	fmt.Printf("\tshortRunCount: %d, shortRunSize: %d\n", shortRunCount, shortRunSize)
-
 	var errchan = make(chan error, 1)
 	var worker *Worker[T]
 	for i := range longRunCount {
@@ -190,7 +181,6 @@ func (m *Master[T]) sortOnePhase(slice []T, phase, maxWorkers int, sortElem func
 
 		startIdx := len(slice) - 2 - 2*i*longRunSize - phase
 		m.wg.Add(1)
-		println("worker starts at idx: ", startIdx)
 		worker.OneSwapPhased(slice, startIdx, longRunSize, errchan, sortElem)
 	}
 
@@ -200,12 +190,9 @@ func (m *Master[T]) sortOnePhase(slice []T, phase, maxWorkers int, sortElem func
 
 		startIdx := len(slice) - 2 - offset - 2*i*shortRunSize - phase
 		m.wg.Add(1)
-		println("worker starts at idx: ", startIdx)
 		worker.OneSwapPhased(slice, startIdx, shortRunSize, errchan, sortElem)
 	}
 
-	print("sortOnePhase end: ")
-	util.PrintSlice[T, string](slice, func(elem T, idx int) string { return fmt.Sprint(elem) })
 }
 
 func (m *Master[T]) nextWorker() (worker *Worker[T]) {
