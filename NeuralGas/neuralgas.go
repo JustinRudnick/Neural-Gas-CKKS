@@ -118,9 +118,9 @@ func (ng *NeuralGas) step(
 	maxIterations int,
 	maxCores int) (err error) {
 	eval := ng.EncParams.Eval
-	ecd := ng.EncParams.Ecd
-	enc := ng.EncParams.Enc
-	params := ng.EncParams.Params
+	// ecd := ng.EncParams.Ecd
+	// enc := ng.EncParams.Enc
+	// params := ng.EncParams.Params
 	logger := ng.logger
 	bootstrapper := ng.EncParams.Bootstrapper
 	cmp := ng.EncParams.Cmp
