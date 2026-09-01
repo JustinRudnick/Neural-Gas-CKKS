@@ -175,8 +175,8 @@ func (ng *NeuralGas) step(
 		return encrypt.SortElements(slice[i], slice[j], identity, eval, cmp, bootstrapper)
 	}
 
-	// sorter.BubbleSort(sortElem, ng.OptimizingPrototypeCount())
-	sorter.BubbleSortPhased(sortElem)
+	sorter.BubbleSort(sortElem, ng.OptimizingPrototypeCount())
+	// sorter.BubbleSortPhased(sortElem)
 
 	lambda := ng.InnerTemperature(iteration, maxIterations)
 	epsilon := ng.StepWidth(iteration, maxIterations)
