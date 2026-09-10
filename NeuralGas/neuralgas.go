@@ -127,6 +127,7 @@ func (ng *NeuralGas) step(
 
 	var errors chan error = make(chan error, 1)
 
+	// compute distances of prototypes to sample point
 	parallelize.MultiThread(
 		sample,
 		rankedPrototypes,
@@ -164,8 +165,9 @@ func (ng *NeuralGas) step(
 	// 	return fmt.Errorf("Sorting failed: %s", err.Error())
 	// }
 
+	// rank prototypes
 	sections := 2 * maxCores
-	sorter, err := sorting.NewMaster[*util.RankedPrototype](rankedPrototypes, sections, maxCores)
+	sorter, err := sorting.NewMaster(rankedPrototypes, sections, maxCores)
 	if err != nil {
 		return fmt.Errorf("Could not create sorting algorithm: %w", err)
 	}
@@ -178,6 +180,7 @@ func (ng *NeuralGas) step(
 	sorter.BubbleSort(sortElem, ng.OptimizingPrototypeCount())
 	// sorter.BubbleSortPhased(sortElem)
 
+	// evaluate learning step
 	lambda := ng.InnerTemperature(iteration, maxIterations)
 	epsilon := ng.StepWidth(iteration, maxIterations)
 
@@ -381,7 +384,7 @@ func (ng *NeuralGas) TrainPlots(epochs, maxCores uint, filenames string, plotEpo
 	totalIterations := int(epochs) * len(ng.samples)
 	prototypeCount := len(ng.prototypes)
 
-	if util.In(plotEpochs, 0) >= 0 {
+	if util.In(plotEpochs, 0) {
 		msgs, err := encrypt.DecSamples(ng.Prototypes(), ecd, dec, logger)
 		if err != nil {
 			return fmt.Errorf("Decryption of samples failed: %s", err.Error())
@@ -504,7 +507,7 @@ func (ng *NeuralGas) TrainPlots(epochs, maxCores uint, filenames string, plotEpo
 		// 	})
 
 		//plotting
-		if util.In(plotEpochs, int(epoch)+1) >= 0 {
+		if util.In(plotEpochs, int(epoch)+1) {
 			msgs, err := encrypt.DecSamples(ng.Prototypes(), ecd, dec, logger)
 			if err != nil {
 				return fmt.Errorf("Decryption of samples failed: %s", err.Error())
