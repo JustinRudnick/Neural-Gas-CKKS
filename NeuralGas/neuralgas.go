@@ -203,7 +203,7 @@ func (ng *NeuralGas) step(
 				diff, err = eval.SubNew(sample, rankedPrototypes[off].Prototype) // (v - w_iOld)
 				if err != nil {
 					if logger != nil {
-						logger.Error(fmt.Sprintf("Calculating difference vector failed for prototype idx: %d at iteration %d", totalIdx, iteration))
+						logger.Error(fmt.Sprintf("Calculating difference vector failed for prototype idx: %d at iteration %d: %s", totalIdx, iteration, err.Error()))
 					}
 					select {
 					case errors <- err: // non blocking
@@ -212,10 +212,11 @@ func (ng *NeuralGas) step(
 					}
 				}
 
+				encrypt.AssureLevel(diff, ng.EncParams.Cmp.BtsEval, func(ctLevel int) bool { return ctLevel < 1 })
 				err = eval.Mul(diff, koeff, diff)
 				if err != nil {
 					if logger != nil {
-						logger.Error(fmt.Sprintf("Multiplying coefficient to difference vector failed for prototype idx: %d at iteration %d", totalIdx, iteration))
+						logger.Error(fmt.Sprintf("Multiplying coefficient to difference vector failed for prototype idx: %d at iteration %d: %s", totalIdx, iteration, err.Error()))
 					}
 					select {
 					case errors <- err: // non blocking
@@ -226,7 +227,7 @@ func (ng *NeuralGas) step(
 				err = eval.Rescale(diff, diff)
 				if err != nil {
 					if logger != nil {
-						logger.Error(fmt.Sprintf("Rescaling difference vector failed for prototype idx: %d at iteration %d", totalIdx, iteration))
+						logger.Error(fmt.Sprintf("Rescaling difference vector failed for prototype idx: %d at iteration %d: %s", totalIdx, iteration, err.Error()))
 					}
 					select {
 					case errors <- err: // non blocking
@@ -237,7 +238,7 @@ func (ng *NeuralGas) step(
 
 				if err := eval.Add(rankedPrototypes[off].Prototype, diff, rankedPrototypes[off].Prototype); err != nil { // w_iOld + epsilon * e^{-k/lambda} * (v - w_iOld)
 					if logger != nil {
-						logger.Error(fmt.Sprintf("Evaluation adaption step failed for prototype idx: %d at iteration %d", totalIdx, iteration))
+						logger.Error(fmt.Sprintf("Evaluation adaption step failed for prototype idx: %d at iteration %d: %s", totalIdx, iteration, err.Error()))
 					}
 					select {
 					case errors <- err: // non blocking
