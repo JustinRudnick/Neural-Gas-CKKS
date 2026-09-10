@@ -212,7 +212,18 @@ func (ng *NeuralGas) step(
 					}
 				}
 
-				encrypt.AssureLevel(diff, ng.EncParams.Cmp.BtsEval, func(ctLevel int) bool { return ctLevel < 2 })
+				diff, err = encrypt.AssureLevel(diff, ng.EncParams.Cmp.BtsEval, func(ctLevel int) bool { return ctLevel < 1 })
+				if err != nil {
+					if logger != nil {
+						logger.Error(fmt.Sprintf("Assuring level for difference vector failed for prototype idx: %d at iteration %d: %s", totalIdx, iteration, err.Error()))
+					}
+					select {
+					case errors <- err: // non blocking
+						return
+					default:
+					}
+				}
+
 				err = eval.Mul(diff, koeff, diff)
 				if err != nil {
 					if logger != nil {
