@@ -14,9 +14,9 @@ import (
 func Plot2D(vecs []*mat.VecDense, title string, filename string) {
 	p := plot.New()
 
-	p.X.Min = 0
+	p.X.Min = -1
 	p.X.Max = 1
-	p.Y.Min = 0
+	p.Y.Min = -1
 	p.Y.Max = 1
 
 	p.Title.Text = title

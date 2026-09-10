@@ -75,7 +75,7 @@ func NewNorm(
 	for i := range prototypeCount {
 		prototype := make([]float64, dimensions)
 		for j := range dimensions {
-			prototype[j] = randomizer.Float64()
+			prototype[j] = 2*randomizer.Float64() - 1
 		}
 		prototypes[i] = mat.NewVecDense(int(dimensions), prototype)
 	}
@@ -180,10 +180,10 @@ func (ng *NeuralGas) step(
 	sorter.BubbleSort(sortElem, ng.OptimizingPrototypeCount())
 	// sorter.BubbleSortPhased(sortElem)
 
-	// evaluate learning step
 	lambda := ng.InnerTemperature(iteration, maxIterations)
 	epsilon := ng.StepWidth(iteration, maxIterations)
 
+	// evaluate learning step
 	parallelize.MultiThread(
 		sample,
 		rankedPrototypes[:ng.optimizingPrototypeCount],
@@ -212,8 +212,7 @@ func (ng *NeuralGas) step(
 					}
 				}
 
-				factor := koeff
-				err = eval.Mul(diff, factor, diff)
+				err = eval.Mul(diff, koeff, diff)
 				if err != nil {
 					if logger != nil {
 						logger.Error(fmt.Sprintf("Multiplying coefficient to difference vector failed for prototype idx: %d at iteration %d", totalIdx, iteration))
@@ -437,75 +436,6 @@ func (ng *NeuralGas) TrainPlots(epochs, maxCores uint, filenames string, plotEpo
 			iteration++
 		}
 
-		// var errors chan error = make(chan error, 1)
-
-		// parallelize.MultiThread[*float64, *util.RankedPrototype](
-		// 	nil,
-		// 	rankedPrototypes,
-		// 	int(maxCores),
-		// 	func(item *float64,
-		// 		subSlice []*util.RankedPrototype,
-		// 		originalStartIndex int,
-		// 		wg *sync.WaitGroup) {
-		// 		defer wg.Done()
-
-		// 		mod1Literal := mod1.ParametersLiteral{
-		// 			LevelQ:   0,                                     // starting level of the operation
-		// 			LogScale: ng.EncParams.Params.LogDefaultScale(), // log2 of the default scaling factor
-		// 			Mod1Type: bootstrapping.DefaultMod1Type,         //mod1.CosContinuous,  // type of approximation for the f: x mod 1 function
-		// 			Scaling:  1.0,                                   /*scaling applied to output ciphertext of mod1 evaluation
-		// 			- participates in the function normalization/approximation construction.
-		// 			It should be chosen according to the Mod1 circuit's intended input range and approximation parameters,
-		// 			rather than treated as an arbitrary post-processing multiplier.*/
-
-		// 			LogMessageRatio: 8,                                                      // Log2 of the ratio between Q0 and m, i.e. Q[0]/|m|
-		// 			K:               (1 << ng.EncParams.LogCleanUpScale) * originalInterval, // interval [-K, K]
-		// 			Mod1Degree:      7,
-		// 			DoubleAngle:     3, // Number of rescale and double angle formula (only applies for cos and is ignored if sin is used)
-		// 			Mod1InvDegree:   7,
-		// 			// QDiff           float64            // Q / 2^round(Log2(Q))
-		// 			// Sqrt2Pi         float64            // (1/2pi)^(1.0/scFac)
-		// 			// Mod1Poly        bignum.Polynomial  // Polynomial for f: x mod 1
-		// 			// Mod1InvPoly     *bignum.Polynomial // Polynomial for f^-1: (x mod 1)^-1
-		// 		}
-
-		// 		for i, prototype := range subSlice {
-		// 			totalIdx := originalStartIndex + i
-
-		// 			prototype.Prototype, err = encrypt.AssureLevel(prototype.Prototype, bootstrapper, func(ctLevel int) bool { return ctLevel < 2 })
-		// 			if err != nil {
-		// 				if logger != nil {
-		// 					logger.Error(fmt.Sprintf("Level Assurance failed: %d at iteration %d", totalIdx, iteration))
-		// 				}
-		// 				select {
-		// 				case errors <- fmt.Errorf("Level Assurance failed:\n\t%w", err): // non blocking
-		// 					return
-		// 				default:
-		// 				}
-		// 			}
-		// 			// fmt.Println("prototype.Prototype: ", prototype.Prototype)
-		// 			logger.Info("prototype before clean up")
-
-		// 			mod1Literal.LevelQ = prototype.Prototype.LevelQ() - 1 //-1: Rescale in CleanUpMod1()
-		// 			mod1Params, err := mod1.NewParametersFromLiteral(*ng.EncParams.Params, mod1Literal)
-		// 			mod1Eval := mod1.NewEvaluator(eval, polynomial.NewEvaluator(*ng.EncParams.Params, eval), mod1Params)
-
-		// 			err = encrypt.CleanUpMod1(prototype.Prototype, scaleUpBits, eval, mod1Eval)
-		// 			if err != nil {
-		// 				if logger != nil {
-		// 					logger.Error(fmt.Sprintf("Clean Up failed at position: %d at iteration %d", totalIdx, iteration))
-		// 				}
-		// 				select {
-		// 				case errors <- fmt.Errorf("Clean Up failed:\n\t%w", err): // non blocking
-		// 					return
-		// 				default:
-		// 				}
-		// 			}
-
-		// 			logger.Info("prototype after clean up")
-		// 		}
-		// 	})
-
 		//plotting
 		if util.In(plotEpochs, int(epoch)+1) {
 			msgs, err := encrypt.DecSamples(ng.Prototypes(), ecd, dec, logger)
@@ -586,7 +516,6 @@ func DistanceSq(v1 *rlwe.Ciphertext, v2 *rlwe.Ciphertext, encParams *EncParams) 
 	eval := encParams.Eval
 	btp := encParams.Bootstrapper
 
-	// TODO is 1 level enough?
 	c0, c1, err := encrypt.EquateLevel(v1, v2, btp, func(minLevel int) bool { return minLevel < 1 })
 	if err != nil {
 		return nil, fmt.Errorf("DistanceSq(): EquateLevel failed with: %w", err)
@@ -617,11 +546,6 @@ func DistanceSq(v1 *rlwe.Ciphertext, v2 *rlwe.Ciphertext, encParams *EncParams) 
 	err = eval.MulRelin(sum, factor, sum)
 	err = eval.Rescale(sum, sum)
 
-	// ecd := encParams.Ecd
-	// enc := encParams.Enc
-	// params := encParams.Params
-
-	// sum, err = encrypt.MulCoeff(float64(1)/float64(sum.Slots()), sum, ecd, enc, eval, params, btp) //eval.MulRelinNew(sum, float64(1)/float64(sum.Slots()))
 	if err != nil {
 		return nil, err
 	}

@@ -368,7 +368,8 @@ func main() {
 func fillDataset(dataset []*mat.VecDense, RNG *rand.Rand) {
 	for i := range len(dataset) {
 		rng := RNG.Float64()
-		dataset[i] = mat.NewVecDense(2, []float64{0.5*math.Sin(rng*2*math.Pi) + 0.5, 0.5*math.Cos(rng*2*math.Pi) + 0.5}) //circle
+		// dataset[i] = mat.NewVecDense(2, []float64{0.5*math.Sin(rng*2*math.Pi) + 0.5, 0.5*math.Cos(rng*2*math.Pi) + 0.5}) //circle
+		dataset[i] = mat.NewVecDense(2, []float64{math.Sin(rng * 2 * math.Pi), math.Cos(rng * 2 * math.Pi)}) //circle [-1, 1]
 		// dataset[2*i] = mat.NewVecDense(2, []float64{rng, math.Cos(rng)})	// sin cos (1/2)
 		// dataset[2*i+1] = mat.NewVecDense(2, []float64{rng, math.Sin(rng)}) // sin cos (2/2)
 		// dataset[i] = mat.NewVecDense(2, []float64{0.5*rng + 0.2, 0.2*rand.Float64() + 0.4}) // rectangle area

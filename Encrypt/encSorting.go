@@ -62,6 +62,17 @@ func SortElements(
 		return fmt.Errorf("Evaluating step failed: %s", err.Error())
 	}
 
+	// [-2, 2] -> [-1, 1]
+	err = eval.Mul(step, 0.5, step)
+	if err != nil {
+		return fmt.Errorf("Changing interval failed: %s", err.Error())
+	}
+	err = eval.Rescale(step, step)
+	if err != nil {
+		return fmt.Errorf("Changing interval (rescale) failed: %s", err.Error())
+	}
+	// stop [-2, 2] -> [-1, 1]
+
 	invStep, err := eval.SubNew(identity, step)
 	if err != nil {
 		return err
