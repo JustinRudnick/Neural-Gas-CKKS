@@ -273,9 +273,9 @@ func main() {
 
 	paramsNG := neuralgas.Params{
 		LearningRate_initial:     0.5,
-		LearningRate_final:       0.005,
+		LearningRate_final:       0.05, //0.005,
 		InnerTemperature_initial: float64(prototypeCount) / 2.0,
-		InnerTemperature_final:   0.01,
+		InnerTemperature_final:   0.1 //0.01,
 	}
 
 	encParamsNG := neuralgas.EncParams{
