@@ -135,6 +135,7 @@ func (ng *NeuralGas) step(
 		func(sample *rlwe.Ciphertext, rankedPrototypes []*util.RankedPrototype, startIdx int, wg *sync.WaitGroup) {
 			var err error
 			defer wg.Done()
+
 			for i := range rankedPrototypes { // calculate distances from prototypes to the sample
 				rankedPrototypes[i].Distance, err = DistanceSq(sample, rankedPrototypes[i].Prototype, ng.EncParams)
 				if err != nil {
@@ -352,22 +353,13 @@ func (ng *NeuralGas) TrainPlots(epochs, maxCores uint, filenames string, plotEpo
 	dec := ng.EncParams.Dec
 	logger := ng.logger
 
-	var bootstrapper *bootstrapping.Evaluator
-	var eval *ckks.Evaluator
-	var mod1Eval *mod1.Evaluator
-
+	var mod1Literal mod1.ParametersLiteral
 	if ng.EncParams.IsCleanedUp {
-		bootstrapper = ng.EncParams.Bootstrapper
-		eval = ng.EncParams.Eval
 		mod1eval := ng.EncParams.Mod1Evaluator
 		if mod1eval == nil {
 			return fmt.Errorf("neural gas encryption parameter Mod1Evaluator is nil.")
 		}
-	}
 
-	var mod1Literal mod1.ParametersLiteral
-
-	if ng.EncParams.IsCleanedUp {
 		originalInterval := 2 //TODO get correct interval
 
 		mod1Literal = mod1.ParametersLiteral{
@@ -395,6 +387,7 @@ func (ng *NeuralGas) TrainPlots(epochs, maxCores uint, filenames string, plotEpo
 	totalIterations := int(epochs) * len(ng.samples)
 	prototypeCount := len(ng.prototypes)
 
+	// plot init state
 	if util.In(plotEpochs, 0) {
 		msgs, err := encrypt.DecSamples(ng.Prototypes(), ecd, dec, logger)
 		if err != nil {
@@ -403,6 +396,7 @@ func (ng *NeuralGas) TrainPlots(epochs, maxCores uint, filenames string, plotEpo
 		plotting.Plot2D(msgs, fmt.Sprintf("%d epoch(s), %d prototypes", 0, prototypeCount), fmt.Sprintf("%s%d", filenames, 0))
 	}
 
+	//run epochs
 	for epoch := range epochs {
 		ng.ShuffleSamples()
 
@@ -412,6 +406,7 @@ func (ng *NeuralGas) TrainPlots(epochs, maxCores uint, filenames string, plotEpo
 		}
 
 		for _, sample := range ng.samples {
+			//evaluate learning step
 			err = ng.step(sample, rankedPrototypes, iteration, totalIterations, int(maxCores))
 			if err != nil {
 				return fmt.Errorf("Evaluating adaption step failed: %s", err.Error())
@@ -419,28 +414,10 @@ func (ng *NeuralGas) TrainPlots(epochs, maxCores uint, filenames string, plotEpo
 
 			//clean up prototypes
 			if ng.EncParams.IsCleanedUp {
-
-				for _, prototype := range rankedPrototypes {
-					prototype.Prototype, err = encrypt.AssureLevel(prototype.Prototype, bootstrapper, func(ctLevel int) bool { return ctLevel < 2 })
-					if err != nil {
-						return fmt.Errorf("Level assurance failed: %s", err.Error())
-					}
-					// fmt.Println("prototype.Prototype: ", prototype.Prototype)
-					logger.Info("prototype before clean up")
-
-					mod1Literal.LevelQ = prototype.Prototype.LevelQ()
-					mod1Params, err := mod1.NewParametersFromLiteral(*ng.EncParams.Params, mod1Literal)
-					mod1Eval = mod1.NewEvaluator(eval, polynomial.NewEvaluator(*ng.EncParams.Params, eval), mod1Params)
-
-					err = encrypt.CleanUpMod1(prototype.Prototype, ng.EncParams.CleanBitScale, eval, mod1Eval)
-					if err != nil {
-						return fmt.Errorf("Clean up could not be evaluated: %s", err.Error())
-					}
-
-					logger.Info("prototype after clean up")
-				}
+				ng.cleanUp(rankedPrototypes, mod1Literal, logger)
 			}
 
+			//apply learning step
 			for i := range rankedPrototypes {
 				ng.prototypes[i] = rankedPrototypes[i].Prototype
 			}
@@ -521,14 +498,14 @@ func (ng NeuralGas) swap(i int, j int) {
 	ng.samples[i], ng.samples[j] = ng.samples[j], ng.samples[i]
 }
 
-// returns the squared euclidian distance of the passed vectors
+// returns the squared euclidian distance divided by the amount of slots and normalized of the passed vectors
 //
-//	The level of ciphertext distance is 1 level lower, than the levels of the ciphertexts v1 and v2.
+//	The level of ciphertext distance is 2 level lower, than the levels of the ciphertexts v1 and v2.
 func DistanceSq(v1 *rlwe.Ciphertext, v2 *rlwe.Ciphertext, encParams *EncParams) (dist *rlwe.Ciphertext, err error) {
 	eval := encParams.Eval
 	btp := encParams.Bootstrapper
 
-	c0, c1, err := encrypt.EquateLevel(v1, v2, btp, func(minLevel int) bool { return minLevel < 1 })
+	c0, c1, err := encrypt.EquateLevel(v1, v2, btp, func(minLevel int) bool { return minLevel < 2 })
 	if err != nil {
 		return nil, fmt.Errorf("DistanceSq(): EquateLevel failed with: %w", err)
 	}
@@ -554,10 +531,17 @@ func DistanceSq(v1 *rlwe.Ciphertext, v2 *rlwe.Ciphertext, encParams *EncParams) 
 		return nil, err
 	}
 
-	var factor float64 = float64(1) / float64(sum.Slots())
-	err = eval.MulRelin(sum, factor, sum)
-	err = eval.Rescale(sum, sum)
+	// start [0, 1] -> [-1, 1]
+	intervalScale := 4 // 1 for no interval change
+	// end [0, 1] -> [-1, 1]
 
+	var factor float64 = float64(1) / (float64(intervalScale) * float64(sum.Slots()))
+	err = eval.MulRelin(sum, factor, sum)
+	if err != nil {
+		return nil, err
+	}
+
+	err = eval.Rescale(sum, sum)
 	if err != nil {
 		return nil, err
 	}
@@ -597,4 +581,31 @@ func Shuffle(n int, randomizer *rand.Rand, swap func(i, j int)) {
 // A modification of [rand.Shuffle] to set the pseudo-randomizer
 func (ng *NeuralGas) ShuffleSamples() {
 	Shuffle(len(ng.samples), ng.randomizer, ng.swap)
+}
+
+func (ng *NeuralGas) cleanUp(rankedPrototypes []*util.RankedPrototype, mod1Literal mod1.ParametersLiteral, logger *slog.Logger) (err error) {
+	bootstrapper := ng.EncParams.Bootstrapper
+	eval := ng.EncParams.Eval
+	var mod1Eval *mod1.Evaluator
+
+	for _, prototype := range rankedPrototypes {
+		prototype.Prototype, err = encrypt.AssureLevel(prototype.Prototype, bootstrapper, func(ctLevel int) bool { return ctLevel < 2 })
+		if err != nil {
+			return fmt.Errorf("Level assurance failed: %s", err.Error())
+		}
+		// fmt.Println("prototype.Prototype: ", prototype.Prototype)
+		logger.Info("prototype before clean up")
+
+		mod1Literal.LevelQ = prototype.Prototype.LevelQ()
+		mod1Params, err := mod1.NewParametersFromLiteral(*ng.EncParams.Params, mod1Literal)
+		mod1Eval = mod1.NewEvaluator(eval, polynomial.NewEvaluator(*ng.EncParams.Params, eval), mod1Params)
+
+		err = encrypt.CleanUpMod1(prototype.Prototype, ng.EncParams.CleanBitScale, eval, mod1Eval)
+		if err != nil {
+			return fmt.Errorf("Clean up could not be evaluated: %s", err.Error())
+		}
+
+		logger.Info("prototype after clean up")
+	}
+	return nil
 }

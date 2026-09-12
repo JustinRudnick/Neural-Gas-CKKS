@@ -42,12 +42,12 @@ func SortElements(
 		return fmt.Errorf("<large> is nil")
 	}
 
-	sProto, lProto, err := EquateLevel(small.Prototype, large.Prototype, btp, func(minLvl int) bool { return minLvl < 2 })
+	sProto, lProto, err := EquateLevel(small.Prototype, large.Prototype, btp, func(minLvl int) bool { return minLvl < 1 })
 	if err != nil {
 		return fmt.Errorf("EquateLevel failed: %s", err.Error())
 	}
 
-	sDist, lDist, err := EquateLevel(small.Distance, large.Distance, btp, func(minLvl int) bool { return minLvl < 2 })
+	sDist, lDist, err := EquateLevel(small.Distance, large.Distance, btp, func(minLvl int) bool { return minLvl < 1 })
 	if err != nil {
 		return fmt.Errorf("EquateLevel failed: %s", err.Error())
 	}
@@ -61,17 +61,6 @@ func SortElements(
 	if err != nil {
 		return fmt.Errorf("Evaluating step failed: %s", err.Error())
 	}
-
-	// [-2, 2] -> [-1, 1]
-	err = eval.Mul(step, 0.5, step)
-	if err != nil {
-		return fmt.Errorf("Changing interval failed: %s", err.Error())
-	}
-	err = eval.Rescale(step, step)
-	if err != nil {
-		return fmt.Errorf("Changing interval (rescale) failed: %s", err.Error())
-	}
-	// stop [-2, 2] -> [-1, 1]
 
 	invStep, err := eval.SubNew(identity, step)
 	if err != nil {

@@ -138,6 +138,7 @@ func main() {
 					panic(err)
 				}
 				isCleanedUp = true
+				panic(fmt.Errorf("-clean command not yet implemented"))
 			default:
 			}
 		case '?':
