@@ -50,7 +50,7 @@ func main() {
 	resPath := "./" //"C:/GitHub/Neural-Gas-CKKS/files/"
 	resFile := "default.txt"
 
-	imageNumber := 0 //prefix for plots
+	plotPrefix := "" //prefix for plots
 
 	epochs := 10
 	scaleBits := 10 // ~3 decimal places precision
@@ -74,7 +74,7 @@ func main() {
 				printHelpInfo(resPath, sampleFile, samplePath, level, logScalingFactor, logAccuracy)
 				return
 			case "plot":
-				imageNumber, err = strconv.Atoi(os.Args[i+1])
+				plotPrefix = os.Args[i+1]
 				if err != nil {
 					panic(err)
 				}
@@ -250,7 +250,7 @@ func main() {
 		sampleCount = len(dataset)
 	}
 
-	plotting.Plot2D(dataset, fmt.Sprintf("sample set of %d samples", sampleCount), fmt.Sprintf(".gitignore/plots/%dsample", imageNumber))
+	plotting.Plot2D(dataset, fmt.Sprintf("sample set of %d samples", sampleCount), fmt.Sprintf(".gitignore/plots/%s_sample", plotPrefix))
 
 	//------------------
 	// Encoding & Encryption
@@ -308,7 +308,7 @@ func main() {
 			plotEpochs[2*i] = epochs / (i + 1)
 			plotEpochs[2*i+1] = int(math.Round(float64(i+1) / float64(10) * float64(epochs)))
 		}
-		err = ng.TrainPlots(uint(epochs), uint(trainCores), fmt.Sprintf(".gitignore/plots/%dimg_", imageNumber), append(plotEpochs, 0))
+		err = ng.TrainPlots(uint(epochs), uint(trainCores), fmt.Sprintf(".gitignore/plots/%s_plot_", plotPrefix), append(plotEpochs, 0))
 		if err != nil {
 			panic(err)
 		}
@@ -389,7 +389,7 @@ func printHelpInfo(path, sampleimg, samplepath string, maxLevel, logScalingFacto
 	println("-logaccuracy -ac <int>\t...additional accuracy to the scaling factor. Default: ", logAccuracy)
 	println("-clean <int>\t\t...bits of precision safed before cleaning the ciphertext. Default: no cleaning")
 	println("\n--- logging ---")
-	println("-plot <int>\t\t...plots the results with given prefix. Default: no plotting")
+	println("-plot <string>\t\t...plots the results with given prefix. Default: no plotting")
 	println("-file -f <string>\t...file to store decrypted prototype results. Default: no logging of results")
 	println("-path <string>\t\t...path to store the file created with -file in. Default: ", path)
 	println("-help -h -? ?\t\t...prints this.")
