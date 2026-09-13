@@ -6,12 +6,14 @@ import (
 	neuralgas "NeuralGasCKKS/NeuralGas"
 	plotting "NeuralGasCKKS/Plotting"
 	util "NeuralGasCKKS/Util"
+	"bufio"
 	"fmt"
 	"image"
 	"log/slog"
 	"math"
 	"math/rand"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -319,6 +321,28 @@ func main() {
 		}
 	}
 
+	if logger != nil {
+		var stats runtime.MemStats
+		runtime.ReadMemStats(&stats)
+
+		allocMem := stats.Sys
+		allocHeap := stats.HeapSys
+
+		logger.Info("total virtual address space: %.2f MB (%d bytes)\n", float64(allocMem)/1024/1024, allocMem)
+		logger.Info("heap virtual address space: %.2f MB (%d bytes)\n", float64(allocHeap)/1024/1024, allocHeap)
+
+		switch runtime.GOOS {
+		case "linux":
+			allocMem, err := peakRSS()
+			if err != nil {
+				logger.Warn("OS linux - could not read %s: %w", fmt.Sprintf("/proc/%d/status", os.Getpid()), err)
+			} else {
+				logger.Info("linux VmHWM total virtual address space: %.2f MB (%d bytes)\n", float64(allocMem)/1024/1024, allocMem)
+			}
+		default:
+		}
+	}
+
 	if !isFiled {
 		return
 	}
@@ -393,4 +417,26 @@ func printHelpInfo(path, sampleimg, samplepath string, maxLevel, logScalingFacto
 	println("-file -f <string>\t...file to store decrypted prototype results. Default: no logging of results")
 	println("-path <string>\t\t...path to store the file created with -file in. Default: ", path)
 	println("-help -h -? ?\t\t...prints this.")
+}
+
+func peakRSS() (uint64, error) {
+	f, err := os.Open(fmt.Sprintf("/proc/%d/status", os.Getpid()))
+	if err != nil {
+		return 0, err
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+		if len(fields) >= 2 && fields[0] == "VmHWM:" {
+			kb, err := strconv.ParseUint(fields[1], 10, 64)
+			if err != nil {
+				return 0, err
+			}
+			return kb * 1024, nil
+		}
+	}
+
+	return 0, scanner.Err()
 }
