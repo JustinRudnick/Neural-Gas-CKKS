@@ -43,6 +43,8 @@ type Params struct {
 	LearningRate_final       float64
 	InnerTemperature_initial float64
 	InnerTemperature_final   float64
+	Threshold                float64 //threshold of learning step factor (if factor epsilon * exp(-k/lambda) gets below: learning step ends)
+
 }
 
 type NeuralGas struct {
@@ -156,6 +158,20 @@ func (ng *NeuralGas) step(
 	default:
 	}
 
+	// prototypes to be sorted
+	var adjustedPrototypes int = 0
+
+	factor := func(epsilon, lambda float64, rank int) float64 {
+		return epsilon * math.Exp(-float64(rank)/lambda)
+	}
+
+	epsilon := ng.StepWidth(iteration, maxIterations)
+	lambda := ng.InnerTemperature(iteration, maxIterations)
+
+	for rank := 0; factor(epsilon, lambda, rank) >= ng.constants.Threshold; rank++ {
+		adjustedPrototypes++
+	}
+
 	/*
 		It exists a sorting algoritm, that takes two input ciphertexts A[0] and A[1] and returns B[0] (smaller) and B[1] (bigger)
 		with same pt for the input and equivalent output according to Section 4.1 of the paper [https://ieeexplore.ieee.org/document/7937936] (#1 Src 9)
@@ -177,16 +193,17 @@ func (ng *NeuralGas) step(
 		return encrypt.SortElements(slice[i], slice[j], identity, eval, cmp, bootstrapper)
 	}
 
-	sorter.BubbleSort(sortElem, ng.OptimizingPrototypeCount())
+	sorter.BubbleSort(sortElem, adjustedPrototypes)
 	// sorter.BubbleSortPhased(sortElem)
 
 	// evaluate learning step
-	lambda := ng.InnerTemperature(iteration, maxIterations)
-	epsilon := ng.StepWidth(iteration, maxIterations)
+	// lambda := ng.InnerTemperature(iteration, maxIterations)
+	// epsilon := ng.StepWidth(iteration, maxIterations)
 
+	//apply learning step
 	parallelize.MultiThread(
 		sample,
-		rankedPrototypes[:ng.optimizingPrototypeCount],
+		rankedPrototypes[:adjustedPrototypes],
 		maxCores,
 		func(sample *rlwe.Ciphertext, rankedPrototypes []*util.RankedPrototype, originalOffset int, wg *sync.WaitGroup) {
 			var err error
@@ -532,14 +549,14 @@ func (ng *NeuralGas) TrainPlots(epochs, maxCores uint, filenames string, plotEpo
 //###################### Getter functions ##############################################################
 
 func (ng *NeuralGas) StepWidth(iteration int, maxIterations int) float64 {
-	minEpsilon := 0.5
+	minEpsilon := 0.0 //.5
 	calEpsilon := calculation(ng.constants.LearningRate_initial, ng.constants.LearningRate_final, iteration, maxIterations)
 
 	return math.Max(calEpsilon, minEpsilon)
 }
 
 func (ng *NeuralGas) InnerTemperature(iteration int, maxIterations int) float64 {
-	minLambda := 0.1
+	minLambda := 0.0 //.1
 	calLambda := calculation(ng.constants.InnerTemperature_initial, ng.constants.InnerTemperature_final, iteration, maxIterations)
 
 	return math.Max(minLambda, calLambda)
@@ -592,7 +609,6 @@ func DistanceSq(v1 *rlwe.Ciphertext, v2 *rlwe.Ciphertext, encParams *EncParams) 
 	eval := encParams.Eval
 	btp := encParams.Bootstrapper
 
-	// TODO is 1 level enough?
 	c0, c1, err := encrypt.EquateLevel(v1, v2, btp, func(minLevel int) bool { return minLevel < 1 })
 	if err != nil {
 		return nil, fmt.Errorf("DistanceSq(): EquateLevel failed with: %w", err)

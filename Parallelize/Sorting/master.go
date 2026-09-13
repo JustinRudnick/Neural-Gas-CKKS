@@ -91,7 +91,7 @@ func (m *Master[T]) AddWorker(worker *Worker[T]) {
 }
 
 /*
-k ...only sort until the first k elements are ascending
+k ...only sort until the first k elements are ascending (and the lowest)
 */
 func (m *Master[T]) BubbleSort(sortElem func(slice []T, i, j int) (err error), k ...int) (err error) {
 	defaultCores := runtime.GOMAXPROCS(0)

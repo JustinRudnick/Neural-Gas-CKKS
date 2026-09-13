@@ -64,6 +64,8 @@ func main() {
 	sampleCount := 40
 	prototypeCount := 10
 
+	var threshold float64 = 0 // factor threshold for learning step
+
 	//-----------------
 	//process input
 	//-----------------
@@ -139,6 +141,11 @@ func main() {
 					panic(err)
 				}
 				isCleanedUp = true
+			case "threshold", "th":
+				threshold, err = strconv.ParseFloat(os.Args[i+1], 64)
+				if err != nil {
+					panic(err)
+				}
 			default:
 			}
 		case '?':
@@ -275,6 +282,7 @@ func main() {
 		LearningRate_final:       0.005,
 		InnerTemperature_initial: float64(prototypeCount) / 2.0,
 		InnerTemperature_final:   0.01,
+		Threshold:                threshold,
 	}
 
 	encParamsNG := neuralgas.EncParams{
@@ -407,6 +415,7 @@ func printHelpInfo(path, sampleimg, samplepath string, maxLevel, logScalingFacto
 	println("-samplepath -sp <string>\t...path to sample image. Default: ", samplepath)
 	println("-prototypes -p <int>\t...amount of prototypes created. Default: 500")
 	println("-epochs -e <int>\t...amount of epochs used for training.")
+	println("-threshold -th <float>\t...minimum threshold for (factor of) learning step adjustment. Default: none")
 	println("\n--- encryption ---")
 	println("-logscale -sc <int>\t...log of scaling factor for encryption. Default: ", logScalingFactor)
 	println("-levels -l <int>\t...max level of ciphertext. Default: ", maxLevel)
