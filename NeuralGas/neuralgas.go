@@ -168,7 +168,7 @@ func (ng *NeuralGas) step(
 	epsilon := ng.StepWidth(iteration, maxIterations)
 	lambda := ng.InnerTemperature(iteration, maxIterations)
 
-	for rank := 0; factor(epsilon, lambda, rank) >= ng.constants.Threshold; rank++ {
+	for rank := 0; (factor(epsilon, lambda, rank) >= ng.constants.Threshold) && rank < ng.OptimizingPrototypeCount(); rank++ {
 		adjustedPrototypes++
 	}
 
