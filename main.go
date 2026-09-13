@@ -5,7 +5,6 @@ import (
 	input "NeuralGasCKKS/Input"
 	neuralgas "NeuralGasCKKS/NeuralGas"
 	plotting "NeuralGasCKKS/Plotting"
-	test "NeuralGasCKKS/Test"
 	util "NeuralGasCKKS/Util"
 	"fmt"
 	"image"
@@ -232,8 +231,6 @@ func main() {
 	}
 	cmp := comparison.NewEvaluator(params, minimax.NewEvaluator(params, eval, bootstrapper))
 
-	test.Decryptor = dec //TODO remove
-
 	//------------------
 	// Samples init
 	//------------------
@@ -273,9 +270,9 @@ func main() {
 
 	paramsNG := neuralgas.Params{
 		LearningRate_initial:     0.5,
-		LearningRate_final:       0.05, //0.005,
+		LearningRate_final:       0.005,
 		InnerTemperature_initial: float64(prototypeCount) / 2.0,
-		InnerTemperature_final:   0.1, //0.01,
+		InnerTemperature_final:   0.01,
 	}
 
 	encParamsNG := neuralgas.EncParams{
