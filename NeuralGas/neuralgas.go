@@ -609,7 +609,7 @@ func DistanceSq(v1 *rlwe.Ciphertext, v2 *rlwe.Ciphertext, encParams *EncParams) 
 	eval := encParams.Eval
 	btp := encParams.Bootstrapper
 
-	c0, c1, err := encrypt.EquateLevel(v1, v2, btp, func(minLevel int) bool { return minLevel < 1 })
+	c0, c1, err := encrypt.EquateLevel(v1, v2, btp, func(minLevel int) bool { return minLevel < 2 })
 	if err != nil {
 		return nil, fmt.Errorf("DistanceSq(): EquateLevel failed with: %w", err)
 	}

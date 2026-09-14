@@ -336,16 +336,16 @@ func main() {
 		allocMem := stats.Sys
 		allocHeap := stats.HeapSys
 
-		logger.Info("total virtual address space: %.2f MB (%d bytes)\n", float64(allocMem)/1024/1024, allocMem)
-		logger.Info("heap virtual address space: %.2f MB (%d bytes)\n", float64(allocHeap)/1024/1024, allocHeap)
+		logger.Info(fmt.Sprintf("total virtual address space: %.2f MB (%d bytes)\n", float64(allocMem)/1024/1024, allocMem))
+		logger.Info(fmt.Sprintf("heap virtual address space: %.2f MB (%d bytes)\n", float64(allocHeap)/1024/1024, allocHeap))
 
 		switch runtime.GOOS {
 		case "linux":
 			allocMem, err := peakRSS()
 			if err != nil {
-				logger.Warn("OS linux - could not read %s: %w", fmt.Sprintf("/proc/%d/status", os.Getpid()), err)
+				logger.Warn(fmt.Sprintf("OS linux - could not read %s: %w", fmt.Sprintf("/proc/%d/status", os.Getpid()), err))
 			} else {
-				logger.Info("linux VmHWM total virtual address space: %.2f MB (%d bytes)\n", float64(allocMem)/1024/1024, allocMem)
+				logger.Info(fmt.Sprintf("linux VmHWM total virtual address space: %.2f MB (%d bytes)\n", float64(allocMem)/1024/1024, allocMem))
 			}
 		default:
 		}
