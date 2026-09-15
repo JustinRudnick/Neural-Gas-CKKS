@@ -14,12 +14,18 @@ Blocks until all goroutines are done.
 Calls [runtime.SetDefaultGOMAXPROCS] in the end.
 */
 func MultiThread[K, T any](item K, items []T, maxCores int, function func(item K, subSlice []T, originalStartIndex int, wg *sync.WaitGroup)) {
+	itemCount := len(items)
+	routineCount := int(math.Min(float64(maxCores), float64(itemCount)))
+
+	//if items is empty: return
+	if routineCount <= 0 {
+		return
+	}
+
 	stdCores := runtime.GOMAXPROCS(0)
 	runtime.GOMAXPROCS(int(math.Min(float64(maxCores), float64(runtime.NumCPU()))))
 	var wg sync.WaitGroup
 
-	itemCount := len(items)
-	routineCount := int(math.Min(float64(maxCores), float64(itemCount)))
 	smallSubSliceSize := int(math.Floor(float64(itemCount) / float64(routineCount)))
 	bigSubSliceSize := smallSubSliceSize + 1
 
