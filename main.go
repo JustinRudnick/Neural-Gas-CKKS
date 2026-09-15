@@ -427,9 +427,9 @@ func printHelpInfo(path, sampleimg, samplepath string, maxLevel, logScalingFacto
 	println("-clean <int>\t\t...bits of precision safed before cleaning the ciphertext. Default: no cleaning")
 	println("\n--- logging ---")
 	println("-plot <string>\t\t...plots the results with given prefix. Default: no plotting")
-	println("-file -f <string>\t...file to store decrypted prototype results. Default: no logging of results")
+	println("-file -f <string>\t...file to store decrypted prototype results. Default: none")
 	println("-path <string>\t\t...path to store the file created with -file in. Default: ", path)
-	println("-logtp -tp <string>\t...file to store the amount of trained prototypes per epoch in .csv format")
+	println("-logtp -tp <string>\t...file to store the amount of trained prototypes per epoch in .csv format. Default: none")
 	println("-help -h -? ?\t\t...prints this.")
 }
 
