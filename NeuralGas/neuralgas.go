@@ -448,7 +448,7 @@ func (ng *NeuralGas) TrainPlots(epochs, maxCores uint, filenames string, plotEpo
 		}
 
 		if logTPCPE != nil {
-			_, err = logTPCPE.WriteString(fmt.Sprintf("%d,%d", epoch+1, adjustedPrototypes))
+			_, err = logTPCPE.WriteString(fmt.Sprintf("%d,%d\n", epoch+1, adjustedPrototypes))
 			if err != nil && logger != nil {
 				logger.Warn(fmt.Sprintf("could not write to file %s: %s", logFileTrainedPrototypeCoundPerEpoch, err.Error()))
 			}
