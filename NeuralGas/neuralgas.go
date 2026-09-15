@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"math"
 	"math/rand"
+	"os"
 	"sync"
 	"time"
 
@@ -348,7 +349,27 @@ func (ng *NeuralGas) Train(epochs uint, maxCores uint) (err error) {
 
 }
 
-func (ng *NeuralGas) TrainPlots(epochs, maxCores uint, filenames string, plotEpochs []int) (err error) {
+func (ng *NeuralGas) TrainPlots(epochs, maxCores uint, filenames string, plotEpochs []int, logFileTrainedPrototypeCoundPerEpoch string) (err error) {
+	// init log prototype count per epoch
+	var logTPCPE *os.File = nil
+	if logFileTrainedPrototypeCoundPerEpoch != "" {
+		logTPCPE, err = os.OpenFile(logFileTrainedPrototypeCoundPerEpoch, os.O_CREATE|os.O_RDWR, 0644)
+		if err != nil {
+			return fmt.Errorf("Could not open file %s: %w", logFileTrainedPrototypeCoundPerEpoch, err)
+		}
+		defer logTPCPE.Close()
+
+		err = logTPCPE.Truncate(0)
+		if err != nil {
+			return fmt.Errorf("Could not truncate file %s: %w", logFileTrainedPrototypeCoundPerEpoch, err)
+		}
+		_, err = logTPCPE.WriteString("epoch, adjusted prototypes\n")
+		if err != nil {
+			return fmt.Errorf("Could not write .csv header to file %s: %w", logFileTrainedPrototypeCoundPerEpoch, err)
+		}
+	}
+	// end init log prototype count per epoch
+
 	initialT := time.Now()
 	if ng.isLogged {
 		ng.logger.Info(fmt.Sprintf("Begin training for %d epoch(s) using %d threads.", epochs, maxCores))
@@ -358,10 +379,11 @@ func (ng *NeuralGas) TrainPlots(epochs, maxCores uint, filenames string, plotEpo
 	dec := ng.EncParams.Dec
 	logger := ng.logger
 
+	// start init clean up
 	var bootstrapper *bootstrapping.Evaluator
 	var eval *ckks.Evaluator
 	var mod1Eval *mod1.Evaluator
-
+	var mod1Literal mod1.ParametersLiteral
 	if ng.EncParams.IsCleanedUp {
 		bootstrapper = ng.EncParams.Bootstrapper
 		eval = ng.EncParams.Eval
@@ -369,11 +391,7 @@ func (ng *NeuralGas) TrainPlots(epochs, maxCores uint, filenames string, plotEpo
 		if mod1eval == nil {
 			return fmt.Errorf("neural gas encryption parameter Mod1Evaluator is nil.")
 		}
-	}
 
-	var mod1Literal mod1.ParametersLiteral
-
-	if ng.EncParams.IsCleanedUp {
 		originalInterval := 2 //TODO get correct interval
 
 		mod1Literal = mod1.ParametersLiteral{
@@ -396,6 +414,7 @@ func (ng *NeuralGas) TrainPlots(epochs, maxCores uint, filenames string, plotEpo
 			// Mod1InvPoly     *bignum.Polynomial // Polynomial for f^-1: (x mod 1)^-1
 		}
 	}
+	// end init clean up
 
 	iteration := 0
 	totalIterations := int(epochs) * len(ng.samples)
@@ -417,7 +436,24 @@ func (ng *NeuralGas) TrainPlots(epochs, maxCores uint, filenames string, plotEpo
 			rankedPrototypes[i] = &util.RankedPrototype{Prototype: ng.prototypes[i], Distance: nil}
 		}
 
+		// log trained prototype count per epoch
+		var adjustedPrototypes int
+		epsilon := ng.StepWidth(iteration, totalIterations)
+		lambda := ng.InnerTemperature(iteration, totalIterations)
+		factor := func(rank int) float64 {
+			return epsilon * math.Exp(-float64(rank)/lambda)
+		}
+
+		for adjustedPrototypes = 0; (factor(adjustedPrototypes) >= ng.constants.Threshold) && adjustedPrototypes < ng.OptimizingPrototypeCount(); adjustedPrototypes++ {
+		}
+
+		if logTPCPE != nil {
+			logTPCPE.WriteString(fmt.Sprintf("%d,%d", epoch+1, adjustedPrototypes))
+		}
+		// end log trained prototype count per epoch
+
 		for _, sample := range ng.samples {
+
 			err = ng.step(sample, rankedPrototypes, iteration, totalIterations, int(maxCores))
 			if err != nil {
 				return fmt.Errorf("Evaluating adaption step failed: %s", err.Error())

@@ -54,6 +54,8 @@ func main() {
 
 	plotPrefix := "" //prefix for plots
 
+	var TrainedPrototypeCountPerEpochFile string = ""
+
 	epochs := 10
 	scaleBits := 10 // ~3 decimal places precision
 
@@ -146,6 +148,8 @@ func main() {
 				if err != nil {
 					panic(err)
 				}
+			case "logtp", "tp":
+				TrainedPrototypeCountPerEpochFile = os.Args[i+1]
 			default:
 			}
 		case '?':
@@ -318,7 +322,7 @@ func main() {
 			plotEpochs[2*i] = epochs / (i + 1)
 			plotEpochs[2*i+1] = int(math.Round(float64(i+1) / float64(10) * float64(epochs)))
 		}
-		err = ng.TrainPlots(uint(epochs), uint(trainCores), fmt.Sprintf(".gitignore/plots/%s_plot_", plotPrefix), append(plotEpochs, 0))
+		err = ng.TrainPlots(uint(epochs), uint(trainCores), fmt.Sprintf(".gitignore/plots/%s_plot_", plotPrefix), append(plotEpochs, 0), TrainedPrototypeCountPerEpochFile)
 		if err != nil {
 			panic(err)
 		}
@@ -425,6 +429,7 @@ func printHelpInfo(path, sampleimg, samplepath string, maxLevel, logScalingFacto
 	println("-plot <string>\t\t...plots the results with given prefix. Default: no plotting")
 	println("-file -f <string>\t...file to store decrypted prototype results. Default: no logging of results")
 	println("-path <string>\t\t...path to store the file created with -file in. Default: ", path)
+	println("-logtp -tp <string>\t...file to store the amount of trained prototypes per epoch in .csv format")
 	println("-help -h -? ?\t\t...prints this.")
 }
 
