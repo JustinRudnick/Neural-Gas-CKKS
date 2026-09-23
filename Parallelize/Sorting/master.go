@@ -117,6 +117,7 @@ func (m *Master[T]) BubbleSort(sortElem func(slice []T, i, j int) (err error), k
 		m.wg.Add(1)
 		go worker.OneBubble(m.slice, m.GetLock(&m.slice[0]), startIdx, runLen, errchan, sortElem)
 
+		runLen--
 	}
 
 	m.wg.Wait()
