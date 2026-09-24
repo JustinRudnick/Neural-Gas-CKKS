@@ -587,6 +587,7 @@ func (ng *NeuralGas) TrainPlots(epochs, maxCores uint, filenames string, plotEpo
 
 //###################### Getter functions ##############################################################
 
+// epsilon
 func (ng *NeuralGas) StepWidth(iteration int, maxIterations int) float64 {
 	var minEpsilon float64 = 0 //.5
 	calEpsilon := calculation(ng.constants.LearningRate_initial, ng.constants.LearningRate_final, iteration, maxIterations)
@@ -594,6 +595,7 @@ func (ng *NeuralGas) StepWidth(iteration int, maxIterations int) float64 {
 	return math.Max(calEpsilon, minEpsilon)
 }
 
+// lambda - actual neighborhood range
 func (ng *NeuralGas) InnerTemperature(iteration int, maxIterations int) float64 {
 	var minLambda float64 = 0 //.1
 	calLambda := calculation(ng.constants.InnerTemperature_initial, ng.constants.InnerTemperature_final, iteration, maxIterations)

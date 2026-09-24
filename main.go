@@ -181,13 +181,21 @@ func main() {
 	//-------- end of deterministic purposes
 
 	// LogN:4, LogQP: sum of all LogQ and LogP components.
+	logP := 61
+	// logQ_L := util.Sum(logQ, func(value, idx int) int { return value })
+	// securityBits := 10
+
 	if params, err = ckks.NewParametersFromLiteral(
 		ckks.ParametersLiteral{
-			LogN:            4,                // log2(ring degree) (4 is minimum)
+			LogN:            4,                //int(math.Max(4, float64(securityLevel(securityBits, logP, logQ_L)))), // log2(ring degree) (4 is minimum)
 			LogQ:            logQ,             // log2(primes Q) (ciphertext modulus)
-			LogP:            []int{61},        // log2(primes P) (auxiliary modulus)
+			LogP:            []int{logP},      // log2(primes P) (auxiliary modulus)
 			LogDefaultScale: logScalingFactor, // log2(scale)
 			RingType:        ring.ConjugateInvariant,
+			Xe: ring.DiscreteGaussian{
+				Sigma: 0,
+				Bound: 0,
+			},
 		}); err != nil {
 		panic(err)
 	}
@@ -453,4 +461,9 @@ func peakRSS() (uint64, error) {
 	}
 
 	return 0, scanner.Err()
+}
+
+// returns the minimum ring dimension (dimension for messages) to guarantee a [bits]-bit security level
+func securityLevel(bits int, logP, logQ_L int) int {
+	return int(math.Ceil((float64(bits) + 110) / 7.2 * float64(logP+logQ_L)))
 }
