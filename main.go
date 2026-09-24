@@ -192,10 +192,10 @@ func main() {
 			LogP:            []int{logP},      // log2(primes P) (auxiliary modulus)
 			LogDefaultScale: logScalingFactor, // log2(scale)
 			RingType:        ring.ConjugateInvariant,
-			Xe: ring.DiscreteGaussian{
-				Sigma: 0,
-				Bound: 0,
-			},
+			// Xe: ring.DiscreteGaussian{
+			// 	Sigma: 0,
+			// 	Bound: 0,
+			// },
 		}); err != nil {
 		panic(err)
 	}
