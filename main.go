@@ -68,6 +68,11 @@ func main() {
 
 	var threshold float64 = 0 // factor threshold for learning step
 
+	var isSetSecurityBits bool = false
+	var bits int = 0
+
+	var logN int = 4
+
 	//-----------------
 	//process input
 	//-----------------
@@ -77,7 +82,7 @@ func main() {
 		case '-':
 			switch strings.ToLower(arg[1:]) {
 			case "help", "h", "?":
-				printHelpInfo(resPath, sampleFile, samplePath, level, logScalingFactor, logAccuracy)
+				printHelpInfo(resPath, sampleFile, samplePath, level, logScalingFactor, logAccuracy, logN, bits)
 				return
 			case "plot":
 				plotPrefix = os.Args[i+1]
@@ -150,10 +155,24 @@ func main() {
 				}
 			case "logtp", "tp":
 				TrainedPrototypeCountPerEpochFile = os.Args[i+1]
+			case "logn", "ldn", "ln":
+				log, err := strconv.Atoi(os.Args[i+1])
+				if err != nil {
+					panic(err)
+				}
+				logN, err = util.Max(logN, log)
+				if err != nil {
+					panic(err)
+				}
+			case "sec", "security_bits":
+				bits, err = strconv.Atoi(os.Args[i+1])
+				if err != nil {
+					panic(err)
+				}
 			default:
 			}
 		case '?':
-			printHelpInfo(resPath, sampleFile, samplePath, level, logScalingFactor, logAccuracy)
+			printHelpInfo(resPath, sampleFile, samplePath, level, logScalingFactor, logAccuracy, logN, bits)
 			return
 
 		default:
@@ -168,9 +187,6 @@ func main() {
 
 	var params ckks.Parameters
 
-	logQ := util.FillSlice(logScalingFactor, level+1)
-	logQ[0] += logAccuracy
-
 	//-------- for deterministic purposes
 	key := []byte("key for research purposes") // 25 byte key. 0 - 32 bytes allowed
 	prng, err := sampling.NewKeyedPRNG(key)
@@ -181,13 +197,22 @@ func main() {
 	//-------- end of deterministic purposes
 
 	// LogN:4, LogQP: sum of all LogQ and LogP components.
+	logQ := util.FillSlice(logScalingFactor, level+1)
+	logQ[0] += logAccuracy
+
 	logP := 61
-	// logQ_L := util.Sum(logQ, func(value, idx int) int { return value })
-	// securityBits := 10
+	logQ_L := util.SumElems(logQ...)
+
+	if isSetSecurityBits {
+		logN, err = util.Max(logN, securityLevel(bits, logP, logQ_L))
+		if err != nil {
+			panic(err)
+		}
+	}
 
 	if params, err = ckks.NewParametersFromLiteral(
 		ckks.ParametersLiteral{
-			LogN:            4,                //int(math.Max(4, float64(securityLevel(securityBits, logP, logQ_L)))), // log2(ring degree) (4 is minimum)
+			LogN:            logN,             //int(math.Max(4, float64(securityLevel(securityBits, logP, logQ_L)))), // log2(ring degree) (4 is minimum)
 			LogQ:            logQ,             // log2(primes Q) (ciphertext modulus)
 			LogP:            []int{logP},      // log2(primes P) (auxiliary modulus)
 			LogDefaultScale: logScalingFactor, // log2(scale)
@@ -290,10 +315,10 @@ func main() {
 	encrypt.IdentityCipherCreateInstance(encSamples[0].Slots(), ecd, enc, &params)
 
 	paramsNG := neuralgas.Params{
-		LearningRate_initial:     0.5,
-		LearningRate_final:       0.005,
-		InnerTemperature_initial: float64(prototypeCount) / 2.0,
-		InnerTemperature_final:   0.01,
+		LearningRate_initial:     0.5,                           //epsilon_0
+		LearningRate_final:       0.005,                         //epsilon_f
+		InnerTemperature_initial: float64(prototypeCount) / 2.0, //lambda_0
+		InnerTemperature_final:   0.01,                          //lambda_f
 		Threshold:                threshold,
 	}
 
@@ -355,7 +380,7 @@ func main() {
 		case "linux":
 			allocMem, err := peakRSS()
 			if err != nil {
-				logger.Warn(fmt.Sprintf("OS linux - could not read %s: %w", fmt.Sprintf("/proc/%d/status", os.Getpid()), err))
+				logger.Warn(fmt.Sprintf("OS linux - could not read %s: %s", fmt.Sprintf("/proc/%d/status", os.Getpid()), err.Error()))
 			} else {
 				logger.Info(fmt.Sprintf("linux VmHWM total virtual address space: %.2f MB (%d bytes)", float64(allocMem)/1024/1024, allocMem))
 			}
@@ -417,7 +442,7 @@ func fillDataset(dataset []*mat.VecDense, RNG *rand.Rand) {
 
 }
 
-func printHelpInfo(path, sampleimg, samplepath string, maxLevel, logScalingFactor, logAccuracy int) {
+func printHelpInfo(path, sampleimg, samplepath string, maxLevel, logScalingFactor, logAccuracy, logN, securityLevel int) {
 	println("commands:")
 	println("--- learning ---")
 	println("-cores -c <int>\t\t...number of threads created. Default: 1")
@@ -429,6 +454,9 @@ func printHelpInfo(path, sampleimg, samplepath string, maxLevel, logScalingFacto
 	println("-epochs -e <int>\t...amount of epochs used for training.")
 	println("-threshold -th <float>\t...minimum threshold for (factor of) learning step adjustment. Default: none")
 	println("\n--- encryption ---")
+	println("-logn -ldn -ln <int>\t...set logN to define the minimum number of ciphertext slots. Default: ", logN)
+	println("-sec -security_bits <int>\t...define minimum bit security level. Default: ", securityLevel)
+	println("(If -sec and -logn are defined, it will choose the maximum logN to satisfy both conditions.)")
 	println("-logscale -sc <int>\t...log of scaling factor for encryption. Default: ", logScalingFactor)
 	println("-levels -l <int>\t...max level of ciphertext. Default: ", maxLevel)
 	println("-logaccuracy -ac <int>\t...additional accuracy to the scaling factor. Default: ", logAccuracy)
@@ -463,7 +491,8 @@ func peakRSS() (uint64, error) {
 	return 0, scanner.Err()
 }
 
-// returns the minimum ring dimension (dimension for messages) to guarantee a [bits]-bit security level
+// returns the logarithmic minimum ring dimension (dimension for messages) to guarantee a [bits]-bit security level
+// returns log N
 func securityLevel(bits int, logP, logQ_L int) int {
-	return int(math.Ceil((float64(bits) + 110) / 7.2 * float64(logP+logQ_L)))
+	return int(math.Ceil(math.Log2((float64(bits) + 110) / 7.2 * float64(logP+logQ_L))))
 }

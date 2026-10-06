@@ -21,7 +21,7 @@ func CanInfNorm[T util.Number](values []T, enc *ckks.Encoder) (norm float64, err
 		return math.NaN(), err
 	}
 
-	max, err := util.Max(util.Abs(pt.Value.Coeffs[0]))
+	max, err := util.Max(util.Abs(pt.Value.Coeffs[0])...)
 	if err != nil {
 		return math.NaN(), fmt.Errorf("Cannot compute canonical infinity norm: %s", err.Error())
 	}
@@ -34,7 +34,7 @@ func CanInfNorm[T util.Number](values []T, enc *ckks.Encoder) (norm float64, err
 returns the infinity norm of the passed vector
 */
 func InfNorm[T util.Number](values []T) (norm T, err error) {
-	return util.Max(util.Abs(values))
+	return util.Max(util.Abs(values)...)
 }
 
 /*
