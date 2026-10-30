@@ -226,9 +226,10 @@ func main() {
 	}
 
 	btpParametersLit := bootstrapping.ParametersLiteral{
-		LogN: utils.Pointy(params.LogN() + 1), // Same LogN as ckks params. (This is not required.)
-		LogP: []int{61},                       // number of auxiliary primes \theta = 2kp + 1 p \in primes, k \in N used by the evaluation keys of the bootstrapping circuit, so that the size of LogQP  meets the security target.
-		Xs:   params.Xs(),                     // specify the bootstrapping parameters' secret distribution. (Not necessary.)
+		LogN:          utils.Pointy(params.LogN() + 1), // Same LogN as ckks params. (This is not required.)
+		LogP:          []int{61},                       // number of auxiliary primes \theta = 2kp + 1 p \in primes, k \in N used by the evaluation keys of the bootstrapping circuit, so that the size of LogQP  meets the security target.
+		Xs:            params.Xs(),                     // specify the bootstrapping parameters' secret distribution. (Not necessary.)
+		Mod1InvDegree: utils.Pointy(7),                 // prevents drift of prototypes (that occured if no proper threshold was used)
 	}
 
 	btpParams, err := bootstrapping.NewParametersFromLiteral(params, btpParametersLit)

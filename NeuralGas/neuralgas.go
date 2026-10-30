@@ -17,7 +17,6 @@ import (
 	"github.com/tuneinsight/lattigo/v6/circuits/ckks/bootstrapping"
 	"github.com/tuneinsight/lattigo/v6/circuits/ckks/comparison"
 	"github.com/tuneinsight/lattigo/v6/circuits/ckks/mod1"
-	"github.com/tuneinsight/lattigo/v6/circuits/ckks/polynomial"
 	"github.com/tuneinsight/lattigo/v6/core/rlwe"
 	"github.com/tuneinsight/lattigo/v6/schemes/ckks"
 	"gonum.org/v1/gonum/mat"
@@ -159,17 +158,17 @@ func (ng *NeuralGas) step(
 	default:
 	}
 
-	// prototypes to be sorted
+	// amount of prototypes to be sorted
 	var adjustedPrototypes int = 0
-
-	factor := func(epsilon, lambda float64, rank int) float64 {
-		return epsilon * math.Exp(-float64(rank)/lambda)
-	}
 
 	epsilon := ng.StepWidth(iteration, maxIterations)
 	lambda := ng.InnerTemperature(iteration, maxIterations)
 
-	for rank := 0; (factor(epsilon, lambda, rank) >= ng.constants.Threshold) && rank < ng.OptimizingPrototypeCount(); rank++ {
+	factor := func(rank int) float64 {
+		return math.Exp(-float64(rank) / lambda)
+	}
+
+	for rank := 0; (factor(rank) >= ng.constants.Threshold) && rank < ng.OptimizingPrototypeCount(); rank++ {
 		adjustedPrototypes++
 	}
 
@@ -285,18 +284,18 @@ func (ng *NeuralGas) Train(epochs uint, maxCores uint) (err error) {
 		ng.logger.Info(fmt.Sprintf("Begin training for %d epoch(s) using %d threads.", epochs, maxCores))
 	}
 
-	var bootstrapper *bootstrapping.Evaluator
-	var eval *ckks.Evaluator
-	var mod1eval *mod1.Evaluator
+	// var bootstrapper *bootstrapping.Evaluator
+	// var eval *ckks.Evaluator
+	// var mod1eval *mod1.Evaluator
 
-	if ng.EncParams.IsCleanedUp {
-		bootstrapper = ng.EncParams.Bootstrapper
-		eval = ng.EncParams.Eval
-		mod1eval := ng.EncParams.Mod1Evaluator
-		if mod1eval == nil {
-			return fmt.Errorf("neural gas encryption parameter Mod1Evaluator is nil.")
-		}
-	}
+	// if ng.EncParams.IsCleanedUp {
+	// 	bootstrapper = ng.EncParams.Bootstrapper
+	// 	eval = ng.EncParams.Eval
+	// 	mod1eval := ng.EncParams.Mod1Evaluator
+	// 	if mod1eval == nil {
+	// 		return fmt.Errorf("neural gas encryption parameter Mod1Evaluator is nil.")
+	// 	}
+	// }
 
 	iteration := 0
 	totalIterations := int(epochs) * len(ng.samples)
@@ -316,22 +315,22 @@ func (ng *NeuralGas) Train(epochs uint, maxCores uint) (err error) {
 			}
 
 			//clean up prototypes
-			if ng.EncParams.IsCleanedUp {
+			// if ng.EncParams.IsCleanedUp {
 
-				for i, prototype := range rankedPrototypes {
-					prototype.Prototype, err = encrypt.AssureLevel(prototype.Prototype, bootstrapper, func(ctLevel int) bool { return ctLevel < 2 })
-					if err != nil {
-						return fmt.Errorf("Level assurance failed: %s", err.Error())
-					}
+			// 	for i, prototype := range rankedPrototypes {
+			// 		prototype.Prototype, err = encrypt.AssureLevel(prototype.Prototype, bootstrapper, func(ctLevel int) bool { return ctLevel < 2 })
+			// 		if err != nil {
+			// 			return fmt.Errorf("Level assurance failed: %s", err.Error())
+			// 		}
 
-					err = encrypt.CleanUpMod1(prototype.Prototype, ng.EncParams.CleanBitScale, eval, mod1eval)
-					if err != nil {
-						return fmt.Errorf("Clean up could not be evaluated: %s", err.Error())
-					}
+			// 		err = encrypt.CleanUpMod1(prototype.Prototype, ng.EncParams.CleanBitScale, eval, mod1eval)
+			// 		if err != nil {
+			// 			return fmt.Errorf("Clean up could not be evaluated: %s", err.Error())
+			// 		}
 
-					ng.prototypes[i] = rankedPrototypes[i].Prototype
-				}
-			}
+			// 		ng.prototypes[i] = rankedPrototypes[i].Prototype
+			// 	}
+			// }
 
 			iteration++
 		}
@@ -349,23 +348,23 @@ func (ng *NeuralGas) Train(epochs uint, maxCores uint) (err error) {
 
 }
 
-func (ng *NeuralGas) TrainPlots(epochs, maxCores uint, filenames string, plotEpochs []int, logFileTrainedPrototypeCoundPerEpoch string) (err error) {
+func (ng *NeuralGas) TrainPlots(epochs, maxCores uint, filenames string, plotEpochs []int, logFileTrainedPrototypeCountPerEpoch string) (err error) {
 	// init log prototype count per epoch
 	var logTPCPE *os.File = nil
-	if logFileTrainedPrototypeCoundPerEpoch != "" {
-		logTPCPE, err = os.OpenFile(logFileTrainedPrototypeCoundPerEpoch, os.O_CREATE|os.O_RDWR, 0644)
+	if logFileTrainedPrototypeCountPerEpoch != "" {
+		logTPCPE, err = os.OpenFile(logFileTrainedPrototypeCountPerEpoch, os.O_CREATE|os.O_RDWR, 0644)
 		if err != nil {
-			return fmt.Errorf("Could not open file %s: %w", logFileTrainedPrototypeCoundPerEpoch, err)
+			return fmt.Errorf("Could not open file %s: %w", logFileTrainedPrototypeCountPerEpoch, err)
 		}
 		defer logTPCPE.Close()
 
 		err = logTPCPE.Truncate(0)
 		if err != nil {
-			return fmt.Errorf("Could not truncate file %s: %w", logFileTrainedPrototypeCoundPerEpoch, err)
+			return fmt.Errorf("Could not truncate file %s: %w", logFileTrainedPrototypeCountPerEpoch, err)
 		}
 		_, err = logTPCPE.WriteString("epoch, adjusted prototypes\n")
 		if err != nil {
-			return fmt.Errorf("Could not write .csv header to file %s: %w", logFileTrainedPrototypeCoundPerEpoch, err)
+			return fmt.Errorf("Could not write .csv header to file %s: %w", logFileTrainedPrototypeCountPerEpoch, err)
 		}
 	}
 	// end init log prototype count per epoch
@@ -380,40 +379,40 @@ func (ng *NeuralGas) TrainPlots(epochs, maxCores uint, filenames string, plotEpo
 	logger := ng.logger
 
 	// start init clean up
-	var bootstrapper *bootstrapping.Evaluator
-	var eval *ckks.Evaluator
-	var mod1Eval *mod1.Evaluator
-	var mod1Literal mod1.ParametersLiteral
-	if ng.EncParams.IsCleanedUp {
-		bootstrapper = ng.EncParams.Bootstrapper
-		eval = ng.EncParams.Eval
-		mod1eval := ng.EncParams.Mod1Evaluator
-		if mod1eval == nil {
-			return fmt.Errorf("neural gas encryption parameter Mod1Evaluator is nil.")
-		}
+	// var bootstrapper *bootstrapping.Evaluator
+	// var eval *ckks.Evaluator
+	// var mod1Eval *mod1.Evaluator
+	// var mod1Literal mod1.ParametersLiteral
+	// if ng.EncParams.IsCleanedUp {
+	// 	bootstrapper = ng.EncParams.Bootstrapper
+	// 	eval = ng.EncParams.Eval
+	// 	mod1eval := ng.EncParams.Mod1Evaluator
+	// 	if mod1eval == nil {
+	// 		return fmt.Errorf("neural gas encryption parameter Mod1Evaluator is nil.")
+	// 	}
 
-		originalInterval := 2 //TODO get correct interval
+	// 	originalInterval := 2 //TODO get correct interval
 
-		mod1Literal = mod1.ParametersLiteral{
-			LevelQ:   0,                                     // starting level of the operation
-			LogScale: ng.EncParams.Params.LogDefaultScale(), // log2 of the default scaling factor
-			Mod1Type: bootstrapping.DefaultMod1Type,         //mod1.CosContinuous,  // type of approximation for the f: x mod 1 function
-			Scaling:  1.0,                                   /*scaling applied to output ciphertext of mod1 evaluation
-			- participates in the function normalization/approximation construction.
-			It should be chosen according to the Mod1 circuit's intended input range and approximation parameters,
-			rather than treated as an arbitrary post-processing multiplier.*/
+	// 	mod1Literal = mod1.ParametersLiteral{
+	// 		LevelQ:   0,                                     // starting level of the operation
+	// 		LogScale: ng.EncParams.Params.LogDefaultScale(), // log2 of the default scaling factor
+	// 		Mod1Type: bootstrapping.DefaultMod1Type,         //mod1.CosContinuous,  // type of approximation for the f: x mod 1 function
+	// 		Scaling:  1.0,                                   /*scaling applied to output ciphertext of mod1 evaluation
+	// 		- participates in the function normalization/approximation construction.
+	// 		It should be chosen according to the Mod1 circuit's intended input range and approximation parameters,
+	// 		rather than treated as an arbitrary post-processing multiplier.*/
 
-			LogMessageRatio: 8,                                                      // Log2 of the ratio between Q0 and m, i.e. Q[0]/|m|
-			K:               (1 << ng.EncParams.LogCleanUpScale) * originalInterval, // interval [-K, K]
-			Mod1Degree:      7,
-			DoubleAngle:     3, // Number of rescale and double angle formula (only applies for cos and is ignored if sin is used)
-			Mod1InvDegree:   7,
-			// QDiff           float64            // Q / 2^round(Log2(Q))
-			// Sqrt2Pi         float64            // (1/2pi)^(1.0/scFac)
-			// Mod1Poly        bignum.Polynomial  // Polynomial for f: x mod 1
-			// Mod1InvPoly     *bignum.Polynomial // Polynomial for f^-1: (x mod 1)^-1
-		}
-	}
+	// 		LogMessageRatio: 8,                                                      // Log2 of the ratio between Q0 and m, i.e. Q[0]/|m|
+	// 		K:               (1 << ng.EncParams.LogCleanUpScale) * originalInterval, // interval [-K, K]
+	// 		Mod1Degree:      7,
+	// 		DoubleAngle:     3, // Number of rescale and double angle formula (only applies for cos and is ignored if sin is used)
+	// 		Mod1InvDegree:   7,
+	// 		// QDiff           float64            // Q / 2^round(Log2(Q))
+	// 		// Sqrt2Pi         float64            // (1/2pi)^(1.0/scFac)
+	// 		// Mod1Poly        bignum.Polynomial  // Polynomial for f: x mod 1
+	// 		// Mod1InvPoly     *bignum.Polynomial // Polynomial for f^-1: (x mod 1)^-1
+	// 	}
+	// }
 	// end init clean up
 
 	iteration := 0
@@ -438,19 +437,20 @@ func (ng *NeuralGas) TrainPlots(epochs, maxCores uint, filenames string, plotEpo
 
 		// log trained prototype count per epoch
 		var adjustedPrototypes int
-		epsilon := ng.StepWidth(iteration, totalIterations)
+		// epsilon := ng.StepWidth(iteration, totalIterations)
 		lambda := ng.InnerTemperature(iteration, totalIterations)
 		factor := func(rank int) float64 {
-			return epsilon * math.Exp(-float64(rank)/lambda)
+			return math.Exp(-float64(rank) / lambda)
 		}
 
-		for adjustedPrototypes = 0; (factor(adjustedPrototypes) >= ng.constants.Threshold) && adjustedPrototypes < ng.OptimizingPrototypeCount(); adjustedPrototypes++ {
+		for rank := 0; (factor(rank) >= ng.constants.Threshold) && rank < ng.OptimizingPrototypeCount(); rank++ {
+			adjustedPrototypes++
 		}
 
 		if logTPCPE != nil {
 			_, err = logTPCPE.WriteString(fmt.Sprintf("%d,%d\n", epoch+1, adjustedPrototypes))
 			if err != nil && logger != nil {
-				logger.Warn(fmt.Sprintf("could not write to file %s: %s", logFileTrainedPrototypeCoundPerEpoch, err.Error()))
+				logger.Warn(fmt.Sprintf("could not write to file %s: %s", logFileTrainedPrototypeCountPerEpoch, err.Error()))
 			}
 		}
 		// end log trained prototype count per epoch
@@ -463,28 +463,28 @@ func (ng *NeuralGas) TrainPlots(epochs, maxCores uint, filenames string, plotEpo
 			}
 
 			//clean up prototypes
-			if ng.EncParams.IsCleanedUp {
+			// if ng.EncParams.IsCleanedUp {
 
-				for _, prototype := range rankedPrototypes {
-					prototype.Prototype, err = encrypt.AssureLevel(prototype.Prototype, bootstrapper, func(ctLevel int) bool { return ctLevel < 2 })
-					if err != nil {
-						return fmt.Errorf("Level assurance failed: %s", err.Error())
-					}
-					// fmt.Println("prototype.Prototype: ", prototype.Prototype)
-					logger.Info("prototype before clean up")
+			// 	for _, prototype := range rankedPrototypes {
+			// 		prototype.Prototype, err = encrypt.AssureLevel(prototype.Prototype, bootstrapper, func(ctLevel int) bool { return ctLevel < 2 })
+			// 		if err != nil {
+			// 			return fmt.Errorf("Level assurance failed: %s", err.Error())
+			// 		}
+			// 		// fmt.Println("prototype.Prototype: ", prototype.Prototype)
+			// 		logger.Info("prototype before clean up")
 
-					mod1Literal.LevelQ = prototype.Prototype.LevelQ()
-					mod1Params, err := mod1.NewParametersFromLiteral(*ng.EncParams.Params, mod1Literal)
-					mod1Eval = mod1.NewEvaluator(eval, polynomial.NewEvaluator(*ng.EncParams.Params, eval), mod1Params)
+			// 		mod1Literal.LevelQ = prototype.Prototype.LevelQ()
+			// 		mod1Params, err := mod1.NewParametersFromLiteral(*ng.EncParams.Params, mod1Literal)
+			// 		mod1Eval = mod1.NewEvaluator(eval, polynomial.NewEvaluator(*ng.EncParams.Params, eval), mod1Params)
 
-					err = encrypt.CleanUpMod1(prototype.Prototype, ng.EncParams.CleanBitScale, eval, mod1Eval)
-					if err != nil {
-						return fmt.Errorf("Clean up could not be evaluated: %s", err.Error())
-					}
+			// 		err = encrypt.CleanUpMod1(prototype.Prototype, ng.EncParams.CleanBitScale, eval, mod1Eval)
+			// 		if err != nil {
+			// 			return fmt.Errorf("Clean up could not be evaluated: %s", err.Error())
+			// 		}
 
-					logger.Info("prototype after clean up")
-				}
-			}
+			// 		logger.Info("prototype after clean up")
+			// 	}
+			// }
 
 			for i := range rankedPrototypes {
 				ng.prototypes[i] = rankedPrototypes[i].Prototype
@@ -589,10 +589,11 @@ func (ng *NeuralGas) TrainPlots(epochs, maxCores uint, filenames string, plotEpo
 
 // epsilon
 func (ng *NeuralGas) StepWidth(iteration int, maxIterations int) float64 {
-	var minEpsilon float64 = 0 //.5
-	calEpsilon := calculation(ng.constants.LearningRate_initial, ng.constants.LearningRate_final, iteration, maxIterations)
-
-	return math.Max(calEpsilon, minEpsilon)
+	// var minEpsilon float64 = 0 //.5
+	// calEpsilon := calculation(ng.constants.LearningRate_initial, ng.constants.LearningRate_final, iteration, maxIterations)
+	// ret := math.Max(calEpsilon, minEpsilon)
+	ret := 0.3 //fixed step width for paper experiments
+	return ret
 }
 
 // lambda - actual neighborhood range
