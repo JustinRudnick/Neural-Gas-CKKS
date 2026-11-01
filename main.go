@@ -339,7 +339,7 @@ func main() {
 
 	ng, err := neuralgas.NewNorm(
 		encSamples,
-		uint(encSamples[0].Slots()),
+		uint(dataset[0].Len()),
 		uint(prototypeCount),
 		randomizer,
 		paramsNG,

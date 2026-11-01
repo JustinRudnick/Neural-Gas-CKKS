@@ -61,6 +61,7 @@ type NeuralGas struct {
 
 // returns a neural gas algorithm with normalized generated prototypes
 // input dataset components must be normalized to interval [0, 1]
+// dimensions ...dimension of the initial data samples (unencrypted)
 func NewNorm(
 	dataset []*rlwe.Ciphertext,
 	dimensions uint,
