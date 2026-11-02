@@ -1,8 +1,16 @@
 package input
 
 import (
+	util "NeuralGasCKKS/Util"
+	"bufio"
+	"fmt"
 	"image"
+	"log/slog"
+	"math"
 	"math/rand"
+	"os"
+	"strconv"
+	"strings"
 
 	"gonum.org/v1/gonum/mat"
 )
@@ -57,4 +65,176 @@ func ImageToSampleSet(imagePath string) []*mat.VecDense {
 	}
 
 	return samples
+}
+
+// filePath ...file path of a 3d model .ply file
+func PlyToSampleSet(filePath string) (vecs []*mat.VecDense, err error) {
+	f, err := os.Open(filePath)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 1024*1024), 1024*1024)
+
+	var (
+		nVertex     = -1
+		inVertex    bool
+		props       []string // property names of the vertex element, in order
+		elemsBefore int      // elements declared before "vertex" (lines to skip)
+		skipCounts  []int
+	)
+
+	// --- Header ---
+	if !sc.Scan() || strings.TrimSpace(sc.Text()) != "ply" {
+		return nil, fmt.Errorf("not a PLY file")
+	}
+	for sc.Scan() {
+		fields := strings.Fields(sc.Text())
+		if len(fields) == 0 {
+			continue
+		}
+		switch fields[0] {
+		case "format":
+			if len(fields) < 2 || fields[1] != "ascii" {
+				return nil, fmt.Errorf("only ASCII PLY supported, got %q", sc.Text())
+			}
+		case "element":
+			if len(fields) < 3 {
+				return nil, fmt.Errorf("bad element line: %q", sc.Text())
+			}
+			n, err := strconv.Atoi(fields[2])
+			if err != nil {
+				return nil, err
+			}
+			inVertex = fields[1] == "vertex"
+			if inVertex {
+				nVertex = n
+			} else if nVertex < 0 {
+				// element appearing before vertex: its lines come first in the body
+				elemsBefore++
+				skipCounts = append(skipCounts, n)
+			}
+		case "property":
+			if inVertex {
+				props = append(props, fields[len(fields)-1])
+			}
+		case "end_header":
+			goto body
+		}
+	}
+	return nil, fmt.Errorf("missing end_header")
+
+body:
+	if nVertex < 0 {
+		return nil, fmt.Errorf("no vertex element found")
+	}
+	idx := map[string]int{"x": -1, "y": -1, "z": -1}
+	for i, p := range props {
+		if _, ok := idx[p]; ok {
+			idx[p] = i
+		}
+	}
+	for k, v := range idx {
+		if v < 0 {
+			return nil, fmt.Errorf("vertex property %q missing", k)
+		}
+	}
+
+	// Skip data of elements declared before vertex (rare, but legal).
+	for _, n := range skipCounts {
+		for i := 0; i < n && sc.Scan(); i++ {
+		}
+	}
+
+	// --- Vertex data ---
+	pts := make([][3]float64, 0, nVertex)
+	for len(pts) < nVertex && sc.Scan() {
+		fields := strings.Fields(sc.Text())
+		if len(fields) < len(props) {
+			continue
+		}
+		var p [3]float64
+		for d, name := range []string{"x", "y", "z"} {
+			v, err := strconv.ParseFloat(fields[idx[name]], 64)
+			if err != nil {
+				return nil, fmt.Errorf("vertex %d: %v", len(pts), err)
+			}
+			p[d] = v
+		}
+		pts = append(pts, p)
+	}
+	if err := sc.Err(); err != nil {
+		return nil, err
+	}
+	if len(pts) != nVertex {
+		return nil, fmt.Errorf("expected %d vertices, read %d", nVertex, len(pts))
+	}
+	Normalize(pts)
+	return toVecDense(pts), nil
+}
+
+func toVecDense(pts [][3]float64) []*mat.VecDense {
+	vecs := make([]*mat.VecDense, len(pts))
+	for i, pt := range pts {
+		slice := []float64{pt[0], pt[1], pt[2]}
+		vecs[i] = mat.NewVecDense(3, slice)
+	}
+	return vecs
+}
+
+// Normalize centers the cloud and scales it uniformly into [-1, 1]
+// (keeps the bunny's aspect ratio).
+func Normalize(pts [][3]float64) {
+	var c [3]float64
+	for _, p := range pts {
+		for d := 0; d < 3; d++ {
+			c[d] += p[d]
+		}
+	}
+	for d := 0; d < 3; d++ {
+		c[d] /= float64(len(pts))
+	}
+	maxAbs := 0.0
+	for i := range pts {
+		for d := 0; d < 3; d++ {
+			pts[i][d] -= c[d]
+			maxAbs = math.Max(maxAbs, math.Abs(pts[i][d]))
+		}
+	}
+	if maxAbs > 0 {
+		for i := range pts {
+			for d := 0; d < 3; d++ {
+				pts[i][d] /= maxAbs
+			}
+		}
+	}
+}
+
+func CSVNoHeaderToSampleSet(filepath string, dimensions int, logger *slog.Logger) (vecs []*mat.VecDense, err error) {
+	file, err := os.OpenFile(filepath, os.O_CREATE|os.O_RDWR, 0644)
+	if err != nil {
+		util.LogError(logger, fmt.Sprintf("Could not open file: %s", filepath))
+		return nil, fmt.Errorf("open file: %s failed.\n", filepath)
+	}
+	defer file.Close()
+
+	csv, err := NewCSVFile(file, false, ",", " \n\t")
+	if err != nil {
+		util.LogError(logger, "Could not create CSV object.")
+		return nil, err
+	}
+
+	vecs = make([]*mat.VecDense, 0)
+	var buf []float64
+
+	buf, err = csv.ReadLine()
+	for err == nil {
+		vecs = append(vecs, mat.NewVecDense(dimensions, buf[:dimensions]))
+		buf, err = csv.ReadLine()
+	}
+
+	return vecs, nil
+
 }
