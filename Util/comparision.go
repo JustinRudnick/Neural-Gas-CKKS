@@ -29,6 +29,19 @@ func Abs[number Number](values []number) (abs []number) {
 	return abs
 }
 
+func MaxAny[T any](isGreater func(elem, currMax T) bool, values ...T) (max T) {
+	if len(values) == 0 {
+		return
+	}
+	max = values[0]
+	for _, elem := range values {
+		if isGreater(elem, max) {
+			max = elem
+		}
+	}
+	return max
+}
+
 /*
 Adds up the passed function's output based on the input values
 */

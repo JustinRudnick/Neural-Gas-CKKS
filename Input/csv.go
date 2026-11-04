@@ -62,7 +62,10 @@ func (csv *CSVFile) Scan() bool {
 }
 
 func (csv *CSVFile) ReadLine() (floats []float64, err error) {
-	input := csv.scanner.Text()
+	var input string = ""
+	if csv.scanner.Scan() {
+		input = csv.scanner.Text()
+	}
 	var elems []string = strings.Split(input, csv.Split)
 	floats = make([]float64, len(elems))
 
@@ -74,4 +77,12 @@ func (csv *CSVFile) ReadLine() (floats []float64, err error) {
 	}
 
 	return floats, nil
+}
+
+func SlicePrint[T any](elems []T) {
+	print("[")
+	for _, el := range elems {
+		print(el, ", ")
+	}
+	println("]")
 }

@@ -171,7 +171,7 @@ body:
 	if len(pts) != nVertex {
 		return nil, fmt.Errorf("expected %d vertices, read %d", nVertex, len(pts))
 	}
-	Normalize(pts)
+	NormalizeArr(pts)
 	return toVecDense(pts), nil
 }
 
@@ -186,14 +186,14 @@ func toVecDense(pts [][3]float64) []*mat.VecDense {
 
 // Normalize centers the cloud and scales it uniformly into [-1, 1]
 // (keeps the bunny's aspect ratio).
-func Normalize(pts [][3]float64) {
+func NormalizeArr(pts [][3]float64) {
 	var c [3]float64
 	for _, p := range pts {
-		for d := 0; d < 3; d++ {
+		for d := 0; d < len(p); d++ {
 			c[d] += p[d]
 		}
 	}
-	for d := 0; d < 3; d++ {
+	for d := 0; d < len(c); d++ {
 		c[d] /= float64(len(pts))
 	}
 	maxAbs := 0.0
@@ -220,7 +220,7 @@ func CSVNoHeaderToSampleSet(filepath string, dimensions int, logger *slog.Logger
 	}
 	defer file.Close()
 
-	csv, err := NewCSVFile(file, false, ",", " \n\t")
+	csv, err := NewCSVFile(file, false, "\t", " \n\t")
 	if err != nil {
 		util.LogError(logger, "Could not create CSV object.")
 		return nil, err
@@ -237,4 +237,30 @@ func CSVNoHeaderToSampleSet(filepath string, dimensions int, logger *slog.Logger
 
 	return vecs, nil
 
+}
+
+func Normalize(vecs []*mat.VecDense) []*mat.VecDense {
+	if len(vecs) == 0 {
+		return vecs
+	}
+
+	normalized := make([]*mat.VecDense, len(vecs))
+	max := make([]float64, vecs[0].Len())
+	//get max components
+	for dim := range vecs[0].Len() {
+		max[dim] = util.MaxAny(
+			func(elem, currMax *mat.VecDense) bool {
+				return elem.AtVec(dim) > currMax.AtVec(dim)
+			},
+			vecs...,
+		).AtVec(dim)
+	}
+
+	maxVec := mat.NewVecDense(len(max), max)
+	for i, vec := range vecs {
+		normalized[i] = mat.NewVecDense(vec.Len(), nil)
+		normalized[i].DivElemVec(vec, maxVec)
+	}
+
+	return normalized
 }

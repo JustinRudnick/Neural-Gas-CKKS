@@ -316,6 +316,7 @@ func main() {
 	case input.CSV_NO_HEADER:
 		dataset, err = input.CSVNoHeaderToSampleSet(sampleFile, csvDimension, logger)
 		util.Panic(err, logger, fmt.Sprintf("Could not open CSV file: %s", sampleFile), fmt.Sprintf("open file: %s failed.\n", sampleFile))
+		dataset = input.Normalize(dataset)
 		sampleCount = len(dataset)
 	}
 
@@ -474,7 +475,7 @@ func printHelpInfo(path, sampleimg, samplepath string, maxLevel, logScalingFacto
 	println("-sampleimg -si <string>\t...image to use as sample. Default: ", sampleimg)
 	println("-samplepath -sp <string>\t...path to sample image. Default: ", samplepath)
 	println("-sampleply -sply <string>\t...PLY file to use as sample (3D).")
-	println("-samplecsvnoheader -scsvnh <string>\t...File in CSV format without header line (i.e. no labels). Delimiter: ','")
+	println("-samplecsvnoheader -scsvnh <string> <int>\t...File in CSV format without header line (i.e. no labels). The integer denotes the amount of columns to extract. Delimiter: '\\t'")
 	println("-prototypes -p <int>\t...amount of prototypes created. Default: 500")
 	println("-epochs -e <int>\t...amount of epochs used for training.")
 	println("-threshold -th <float>\t...minimum threshold for (factor of) learning step adjustment. Default: none")
