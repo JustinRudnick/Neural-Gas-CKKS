@@ -363,7 +363,7 @@ func main() {
 		encSamples,
 		uint(dataset[0].Len()),
 		uint(prototypeCount),
-		randomizer,
+		rand.New(rand.NewSource(seed)),
 		paramsNG,
 		encParamsNG,
 		encCores,
