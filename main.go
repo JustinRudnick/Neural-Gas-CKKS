@@ -316,7 +316,6 @@ func main() {
 	case input.CSV_NO_HEADER:
 		dataset, err = input.CSVNoHeaderToSampleSet(sampleFile, csvDimension, logger)
 		util.Panic(err, logger, fmt.Sprintf("Could not open CSV file: %s", sampleFile), fmt.Sprintf("open file: %s failed.\n", sampleFile))
-		dataset = input.Normalize(dataset)
 		sampleCount = len(dataset)
 	}
 
