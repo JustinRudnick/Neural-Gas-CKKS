@@ -181,7 +181,7 @@ body:
 	}
 	vecs = toVecDense(pts)
 	scaler := Fit(vecs, 0, 1)
-	scaler.Transform(vecs) // minmax normalize the data set
+	vecs = scaler.Transform(vecs) // minmax normalize the data set
 	return vecs, nil
 }
 
@@ -247,7 +247,7 @@ func CSVNoHeaderToSampleSet(filepath string, dimensions int, logger *slog.Logger
 	}
 
 	scaler := Fit(vecs, 0, 1)
-	scaler.Transform(vecs) // minmax normalize the data set
+	vecs = scaler.Transform(vecs) // minmax normalize the data set
 
 	return vecs, nil
 
